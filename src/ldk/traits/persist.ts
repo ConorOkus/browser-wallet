@@ -32,7 +32,7 @@ export function createPersister(): Persist {
         console.error('[LDK Persist] Failed to persist new channel monitor:', err)
       })
 
-      return ChannelMonitorUpdateStatus.LDKChannelMonitorUpdateStatus_Completed
+      return ChannelMonitorUpdateStatus.LDKChannelMonitorUpdateStatus_InProgress
     },
 
     update_persisted_channel(
@@ -48,7 +48,7 @@ export function createPersister(): Persist {
         console.error('[LDK Persist] Failed to update channel monitor:', err)
       })
 
-      return ChannelMonitorUpdateStatus.LDKChannelMonitorUpdateStatus_Completed
+      return ChannelMonitorUpdateStatus.LDKChannelMonitorUpdateStatus_InProgress
     },
 
     archive_persisted_channel(channel_funding_outpoint: OutPoint): void {

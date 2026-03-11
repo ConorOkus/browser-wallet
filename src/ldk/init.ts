@@ -2,6 +2,7 @@ import {
   initializeWasmWebFetch,
   KeysManager,
   Recipient,
+  Result_PublicKeyNoneZ_OK,
   type Logger,
   type FeeEstimator,
   type BroadcasterInterface,
@@ -56,8 +57,10 @@ export async function initializeLdk(): Promise<LdkNode> {
   if (!nodeIdResult.is_ok()) {
     throw new Error('Failed to derive node ID from KeysManager')
   }
-  // Result_PublicKeyNoneZ_OK has `.res` with the public key bytes
-  const nodeId = bytesToHex((nodeIdResult as { res: Uint8Array }).res)
+  if (!(nodeIdResult instanceof Result_PublicKeyNoneZ_OK)) {
+    throw new Error('Failed to derive node ID from KeysManager')
+  }
+  const nodeId = bytesToHex(nodeIdResult.res)
 
   return { nodeId, keysManager, logger, feeEstimator, broadcaster, persister }
 }
