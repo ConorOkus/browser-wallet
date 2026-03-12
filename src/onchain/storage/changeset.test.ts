@@ -8,7 +8,7 @@ beforeEach(async () => {
   await new Promise<void>((resolve, reject) => {
     const req = indexedDB.deleteDatabase('browser-wallet-ldk')
     req.onsuccess = () => resolve()
-    req.onerror = () => reject(req.error)
+    req.onerror = () => reject(new Error(req.error?.message ?? 'Failed to delete DB'))
   })
   vi.resetModules()
   changesetModule = await import('./changeset')

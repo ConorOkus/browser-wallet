@@ -57,7 +57,7 @@ export function WalletGate({ children }: { children: ReactNode }) {
             onClick={() => void wallet.confirmBackup()}
             className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
           >
-            I've Written It Down
+            I&apos;ve Written It Down
           </button>
         </div>
       </div>
