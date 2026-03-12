@@ -1,0 +1,21 @@
+name = "ln-ws-proxy"
+main = "src/index.ts"
+compatibility_date = "2026-03-01"
+
+[vars]
+ALLOWED_PORTS = "9735"
+MAX_MESSAGE_SIZE = "65536"
+
+[env.dev]
+name = "ln-ws-proxy-dev"
+[env.dev.vars]
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
+ALLOWED_PORTS = "9735"
+MAX_MESSAGE_SIZE = "65536"
+
+[env.production]
+name = "ln-ws-proxy-production"
+[env.production.vars]
+ALLOWED_ORIGINS = ""
+ALLOWED_PORTS = "9735"
+MAX_MESSAGE_SIZE = "65536"
