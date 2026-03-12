@@ -61,7 +61,10 @@ let wasmInitPromise: Promise<void> | null = null
 
 function initWasm(): Promise<void> {
   if (!wasmInitPromise) {
-    wasmInitPromise = initializeWasmWebFetch('/liblightningjs.wasm')
+    wasmInitPromise = initializeWasmWebFetch('/liblightningjs.wasm').catch((err) => {
+      wasmInitPromise = null
+      throw err
+    })
   }
   return wasmInitPromise
 }
@@ -86,7 +89,21 @@ async function acquireWalletLock(): Promise<void> {
   })
 }
 
-export async function initializeLdk(): Promise<InitResult> {
+// Deduplicate concurrent initializeLdk() calls from React StrictMode double-mount.
+// The second mount reuses the in-flight promise instead of fighting for the Web Lock.
+let initPromise: Promise<InitResult> | null = null
+
+export function initializeLdk(): Promise<InitResult> {
+  if (!initPromise) {
+    initPromise = doInitializeLdk().catch((err) => {
+      initPromise = null
+      throw err
+    })
+  }
+  return initPromise
+}
+
+async function doInitializeLdk(): Promise<InitResult> {
   // 0. Safety: acquire multi-tab lock and init WASM
   await acquireWalletLock()
   await initWasm()
