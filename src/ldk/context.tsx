@@ -32,7 +32,7 @@ export function LdkProvider({
     let cleanupEventHandlerFn: (() => void) | null = null
 
     initializeLdk(ldkSeed)
-      .then(({ node, watchState, cleanupEventHandler }) => {
+      .then(({ node, watchState, cleanupEventHandler, setBdkWallet }) => {
         if (cancelled) return
 
         nodeRef.current = node
@@ -89,6 +89,7 @@ export function LdkProvider({
           error: null,
           syncStatus: 'syncing',
           connectToPeer,
+          setBdkWallet,
         })
       })
       .catch((err: unknown) => {

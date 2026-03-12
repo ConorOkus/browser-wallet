@@ -61,6 +61,7 @@ export interface InitResult {
   node: LdkNode
   watchState: WatchState
   cleanupEventHandler: () => void
+  setBdkWallet: (wallet: import('@bitcoindevkit/bdk-wallet-web').Wallet | null) => void
 }
 
 // WASM double-init guard: deduplicate concurrent calls from React StrictMode
@@ -283,7 +284,7 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   const nodeId = bytesToHex(nodeIdResult.res)
 
   // 12. Create EventHandler
-  const { handler: eventHandler, cleanup: cleanupEventHandler } =
+  const { handler: eventHandler, cleanup: cleanupEventHandler, setBdkWallet } =
     createEventHandler(channelManager)
 
   const node: LdkNode = {
@@ -301,7 +302,7 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     eventHandler,
   }
 
-  return { node, watchState, cleanupEventHandler }
+  return { node, watchState, cleanupEventHandler, setBdkWallet }
 }
 
 function deserializeMonitors(

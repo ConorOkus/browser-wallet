@@ -7,6 +7,7 @@ import {
 } from './onchain-context'
 import { initializeBdkWallet } from './init'
 import { startOnchainSyncLoop, type OnchainBalance } from './sync'
+import { useLdk } from '../ldk/use-ldk'
 
 export function OnchainProvider({
   children,
@@ -17,6 +18,7 @@ export function OnchainProvider({
 }) {
   const [state, setState] = useState<OnchainContextValue>(defaultOnchainContextValue)
   const walletRef = useRef<Wallet | null>(null)
+  const ldk = useLdk()
 
   const generateAddress = useCallback((): string => {
     if (!walletRef.current) throw new Error('BDK wallet not initialized')
@@ -33,6 +35,11 @@ export function OnchainProvider({
         if (cancelled) return
 
         walletRef.current = wallet
+
+        // Register BDK wallet with LDK event handler for channel funding
+        if (ldk.status === 'ready') {
+          ldk.setBdkWallet(wallet)
+        }
 
         syncHandle = startOnchainSyncLoop(
           wallet,
@@ -62,9 +69,13 @@ export function OnchainProvider({
     return () => {
       cancelled = true
       syncHandle?.stop()
+      // Unregister BDK wallet from LDK event handler
+      if (ldk.status === 'ready') {
+        ldk.setBdkWallet(null)
+      }
       walletRef.current = null
     }
-  }, [bdkDescriptors, generateAddress])
+  }, [bdkDescriptors, generateAddress, ldk])
 
   return <OnchainContext value={state}>{children}</OnchainContext>
 }
