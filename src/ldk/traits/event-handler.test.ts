@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockClaimFunds = vi.fn()
 const mockProcessPendingHtlcForwards = vi.fn()
@@ -9,7 +9,8 @@ vi.mock('lightningdevkit', () => {
     payment_hash = new Uint8Array([1, 2, 3])
     amount_msat = BigInt(100000)
     purpose = {
-      preimage: () => new Option_ThirtyTwoBytesZ_Some(new Uint8Array([4, 5, 6])),
+      preimage: () =>
+        new Option_ThirtyTwoBytesZ_Some(new Uint8Array([4, 5, 6])),
     }
   }
   class Event_PaymentClaimed extends MockEvent {
@@ -22,9 +23,6 @@ vi.mock('lightningdevkit', () => {
   class Event_PaymentFailed extends MockEvent {
     payment_hash = new Uint8Array([1, 2, 3])
   }
-  class Event_PaymentPathSuccessful extends MockEvent {}
-  class Event_PaymentPathFailed extends MockEvent {}
-  class Event_PaymentForwarded extends MockEvent {}
   class Event_PendingHTLCsForwardable extends MockEvent {
     time_forwardable = BigInt(2)
   }
@@ -58,6 +56,8 @@ vi.mock('lightningdevkit', () => {
     }
   }
 
+  class Option_ThirtyTwoBytesZ_None {}
+
   return {
     EventHandler: {
       new_impl: vi.fn(
@@ -70,9 +70,6 @@ vi.mock('lightningdevkit', () => {
     Event_PaymentClaimed,
     Event_PaymentSent,
     Event_PaymentFailed,
-    Event_PaymentPathSuccessful,
-    Event_PaymentPathFailed,
-    Event_PaymentForwarded,
     Event_PendingHTLCsForwardable,
     Event_SpendableOutputs,
     Event_ChannelPending,
@@ -85,6 +82,7 @@ vi.mock('lightningdevkit', () => {
     Event_BumpTransaction,
     Event_DiscardFunding,
     Option_ThirtyTwoBytesZ_Some,
+    Option_ThirtyTwoBytesZ_None,
     Result_NoneReplayEventZ: {
       constructor_ok: vi.fn(() => ({ is_ok: () => true })),
     },
@@ -120,6 +118,7 @@ import {
   Event_BumpTransaction,
   Event_OpenChannelRequest,
   Event_DiscardFunding,
+  Option_ThirtyTwoBytesZ_None,
 } from 'lightningdevkit'
 
 function createMockChannelManager() {
@@ -133,18 +132,26 @@ type HandleEventFn = (event: unknown) => unknown
 
 describe('createEventHandler', () => {
   let handleEvent: HandleEventFn
-  const mockConnectToPeer = vi.fn(() => Promise.resolve())
+  let cleanup: () => void
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers()
 
     const cm = createMockChannelManager()
-    const { handler, setConnectToPeer } = createEventHandler(cm)
-    setConnectToPeer(mockConnectToPeer)
+    const result = createEventHandler(cm)
+    cleanup = result.cleanup
     handleEvent = (
-      handler as unknown as { _impl: { handle_event: HandleEventFn } }
+      result.handler as unknown as { _impl: { handle_event: HandleEventFn } }
     )._impl.handle_event
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
   })
 
   it('claims payment on PaymentClaimable with preimage', () => {
@@ -152,36 +159,45 @@ describe('createEventHandler', () => {
     expect(mockClaimFunds).toHaveBeenCalledWith(new Uint8Array([4, 5, 6]))
   })
 
+  it('warns when PaymentClaimable has no preimage', () => {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */
+    const event = Object.assign(new Event_PaymentClaimable(), {
+      purpose: { preimage: () => new Option_ThirtyTwoBytesZ_None() },
+    })
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */
+    handleEvent(event)
+    expect(mockClaimFunds).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('no preimage'),
+      expect.any(String),
+      expect.stringContaining('cannot be claimed'),
+    )
+  })
+
   it('logs PaymentClaimed', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
     handleEvent(new Event_PaymentClaimed())
-    expect(spy).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('PaymentClaimed'),
       expect.any(String),
       expect.any(String),
       expect.any(String),
     )
-    spy.mockRestore()
   })
 
   it('logs PaymentSent', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
     handleEvent(new Event_PaymentSent())
-    expect(spy).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('PaymentSent'),
       expect.any(String),
     )
-    spy.mockRestore()
   })
 
   it('warns on PaymentFailed', () => {
-    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     handleEvent(new Event_PaymentFailed())
-    expect(spy).toHaveBeenCalledWith(
+    expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('PaymentFailed'),
       expect.any(String),
     )
-    spy.mockRestore()
   })
 
   it('schedules HTLC forwarding with delay', () => {
@@ -203,6 +219,13 @@ describe('createEventHandler', () => {
     expect(mockProcessPendingHtlcForwards).toHaveBeenCalledOnce()
   })
 
+  it('cleanup cancels pending HTLC forward timer', () => {
+    handleEvent(new Event_PendingHTLCsForwardable())
+    cleanup()
+    vi.advanceTimersByTime(10000)
+    expect(mockProcessPendingHtlcForwards).not.toHaveBeenCalled()
+  })
+
   it('persists SpendableOutputs to IDB', () => {
     handleEvent(new Event_SpendableOutputs())
     expect(idbPut).toHaveBeenCalledWith(
@@ -212,98 +235,95 @@ describe('createEventHandler', () => {
     )
   })
 
+  it('logs "persisting" for SpendableOutputs', () => {
+    handleEvent(new Event_SpendableOutputs())
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('persisting'),
+      expect.any(Number),
+      expect.any(String),
+    )
+  })
+
   it('logs ChannelPending', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
     handleEvent(new Event_ChannelPending())
-    expect(spy).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('ChannelPending'),
       expect.any(String),
     )
-    spy.mockRestore()
   })
 
   it('logs ChannelReady', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
     handleEvent(new Event_ChannelReady())
-    expect(spy).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('ChannelReady'),
       expect.any(String),
     )
-    spy.mockRestore()
   })
 
   it('logs ChannelClosed with reason', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
     handleEvent(new Event_ChannelClosed())
-    expect(spy).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('ChannelClosed'),
       expect.any(String),
       'reason:',
       'CooperativeClosure',
     )
-    spy.mockRestore()
   })
 
-  it('calls connectToPeer on ConnectionNeeded', () => {
+  it('warns on ConnectionNeeded (not yet implemented)', () => {
     handleEvent(new Event_ConnectionNeeded())
-    expect(mockConnectToPeer).toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('ConnectionNeeded'),
+      expect.any(String),
+      expect.stringContaining('not yet implemented'),
+    )
   })
 
-  it('warns on FundingGenerationReady (deferred)', () => {
-    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  it('warns on FundingGenerationReady', () => {
     handleEvent(new Event_FundingGenerationReady())
-    expect(spy).toHaveBeenCalledWith(
+    expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('FundingGenerationReady'),
     )
-    spy.mockRestore()
   })
 
-  it('warns on BumpTransaction (deferred)', () => {
-    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  it('warns on BumpTransaction', () => {
     handleEvent(new Event_BumpTransaction())
-    expect(spy).toHaveBeenCalledWith(
+    expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('BumpTransaction'),
     )
-    spy.mockRestore()
   })
 
-  it('logs OpenChannelRequest (auto-reject)', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  it('logs OpenChannelRequest with timeout note', () => {
     handleEvent(new Event_OpenChannelRequest())
-    expect(spy).toHaveBeenCalledWith(
-      expect.stringContaining('OpenChannelRequest'),
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('will timeout'),
     )
-    spy.mockRestore()
   })
 
   it('logs DiscardFunding', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
     handleEvent(new Event_DiscardFunding())
-    expect(spy).toHaveBeenCalledWith(expect.stringContaining('DiscardFunding'))
-    spy.mockRestore()
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('DiscardFunding'),
+    )
   })
 
   it('handles unknown events without throwing', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
     expect(() => handleEvent({})).not.toThrow()
-    expect(spy).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Unhandled event'),
       expect.any(String),
     )
-    spy.mockRestore()
   })
 
   it('catches errors in handler without throwing', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const badEvent = Object.assign(new Event_PaymentClaimable(), {
       purpose: null,
     })
     expect(() => handleEvent(badEvent)).not.toThrow()
-    expect(spy).toHaveBeenCalledWith(
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('Unhandled error'),
       expect.anything(),
     )
-    spy.mockRestore()
   })
 })

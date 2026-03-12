@@ -60,9 +60,7 @@ export interface LdkNode {
 export interface InitResult {
   node: LdkNode
   watchState: WatchState
-  setConnectToPeer: (
-    fn: (pubkey: string, host: string, port: number) => Promise<void>,
-  ) => void
+  cleanupEventHandler: () => void
 }
 
 // WASM double-init guard: deduplicate concurrent calls from React StrictMode
@@ -284,7 +282,7 @@ async function doInitializeLdk(): Promise<InitResult> {
   const nodeId = bytesToHex(nodeIdResult.res)
 
   // 12. Create EventHandler
-  const { handler: eventHandler, setConnectToPeer } =
+  const { handler: eventHandler, cleanup: cleanupEventHandler } =
     createEventHandler(channelManager)
 
   const node: LdkNode = {
@@ -302,7 +300,7 @@ async function doInitializeLdk(): Promise<InitResult> {
     eventHandler,
   }
 
-  return { node, watchState, setConnectToPeer }
+  return { node, watchState, cleanupEventHandler }
 }
 
 function deserializeMonitors(

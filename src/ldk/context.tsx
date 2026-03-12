@@ -23,17 +23,14 @@ export function LdkProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     let syncHandle: { stop: () => void } | null = null
     let peerTimerId: ReturnType<typeof setInterval> | null = null
+    let cleanupEventHandlerFn: (() => void) | null = null
 
     initializeLdk()
-      .then(({ node, watchState, setConnectToPeer }) => {
+      .then(({ node, watchState, cleanupEventHandler }) => {
         if (cancelled) return
 
         nodeRef.current = node
-
-        // Wire connectToPeer into the EventHandler for ConnectionNeeded events
-        setConnectToPeer(async (pubkey: string, host: string, port: number) => {
-          await doConnectToPeer(node.peerManager, pubkey, host, port)
-        })
+        cleanupEventHandlerFn = cleanupEventHandler
 
         const esplora = new EsploraClient(SIGNET_CONFIG.esploraUrl)
         const confirmables = [
@@ -53,37 +50,29 @@ export function LdkProvider({ children }: { children: ReactNode }) {
         )
 
         // PeerManager timer + LDK event processing every ~10s
-        let isProcessingEvents = false
         peerTimerId = setInterval(() => {
           node.peerManager.timer_tick_occurred()
           node.peerManager.process_events()
 
           // Drain LDK events from both ChannelManager and ChainMonitor
-          if (!isProcessingEvents) {
-            isProcessingEvents = true
-            try {
-              node.channelManager
-                .as_EventsProvider()
-                .process_pending_events(node.eventHandler)
-              node.chainMonitor
-                .as_EventsProvider()
-                .process_pending_events(node.eventHandler)
+          node.channelManager
+            .as_EventsProvider()
+            .process_pending_events(node.eventHandler)
+          node.chainMonitor
+            .as_EventsProvider()
+            .process_pending_events(node.eventHandler)
 
-              // Flush ChannelManager state immediately after processing events
-              if (node.channelManager.get_and_clear_needs_persistence()) {
-                const data = node.channelManager.write()
-                void idbPut('ldk_channel_manager', 'primary', data).catch(
-                  (err: unknown) => {
-                    console.error(
-                      '[LDK Context] Failed to persist ChannelManager after events:',
-                      err,
-                    )
-                  },
+          // Flush ChannelManager state immediately after processing events
+          if (node.channelManager.get_and_clear_needs_persistence()) {
+            const data = node.channelManager.write()
+            void idbPut('ldk_channel_manager', 'primary', data).catch(
+              (err: unknown) => {
+                console.error(
+                  '[LDK Context] Failed to persist ChannelManager after events:',
+                  err,
                 )
-              }
-            } finally {
-              isProcessingEvents = false
-            }
+              },
+            )
           }
         }, SIGNET_CONFIG.peerTimerIntervalMs)
 
@@ -109,6 +98,7 @@ export function LdkProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
       syncHandle?.stop()
+      cleanupEventHandlerFn?.()
       if (peerTimerId !== null) clearInterval(peerTimerId)
       nodeRef.current = null
     }
