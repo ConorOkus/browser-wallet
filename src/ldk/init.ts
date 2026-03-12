@@ -30,7 +30,7 @@ import {
   type ChannelMonitor,
   type EventHandler,
 } from 'lightningdevkit'
-import { getSeed, generateAndStoreSeed } from './storage/seed'
+import { getSeed, storeDerivedSeed } from './storage/seed'
 import { createLogger } from './traits/logger'
 import { createFeeEstimator } from './traits/fee-estimator'
 import { createBroadcaster } from './traits/broadcaster'
@@ -61,6 +61,7 @@ export interface InitResult {
   node: LdkNode
   watchState: WatchState
   cleanupEventHandler: () => void
+  setBdkWallet: (wallet: import('@bitcoindevkit/bdk-wallet-web').Wallet | null) => void
 }
 
 // WASM double-init guard: deduplicate concurrent calls from React StrictMode
@@ -84,7 +85,7 @@ async function acquireWalletLock(): Promise<void> {
   }
 
   return new Promise<void>((resolve, reject) => {
-    void navigator.locks.request('ldk-wallet-lock', { ifAvailable: true }, (lock) => {
+    void navigator.locks.request('browser-wallet-lock', { ifAvailable: true }, (lock) => {
       if (!lock) {
         reject(new Error('Wallet is already open in another tab'))
         return Promise.resolve()
@@ -100,9 +101,9 @@ async function acquireWalletLock(): Promise<void> {
 // The second mount reuses the in-flight promise instead of fighting for the Web Lock.
 let initPromise: Promise<InitResult> | null = null
 
-export function initializeLdk(): Promise<InitResult> {
+export function initializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   if (!initPromise) {
-    initPromise = doInitializeLdk().catch((err) => {
+    initPromise = doInitializeLdk(ldkSeed).catch((err) => {
       initPromise = null
       throw err
     })
@@ -110,15 +111,21 @@ export function initializeLdk(): Promise<InitResult> {
   return initPromise
 }
 
-async function doInitializeLdk(): Promise<InitResult> {
+async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   // 0. Safety: acquire multi-tab lock and init WASM
   await acquireWalletLock()
   await initWasm()
 
-  // 1. Get or create seed
+  // 1. Persist derived seed to IDB, or verify stored seed matches mnemonic derivation
   let seed = await getSeed()
   if (!seed) {
-    seed = await generateAndStoreSeed()
+    await storeDerivedSeed(ldkSeed)
+    seed = ldkSeed
+  } else if (seed.length !== ldkSeed.length || !seed.every((b, i) => b === ldkSeed[i])) {
+    throw new Error(
+      '[LDK Init] Stored seed does not match mnemonic derivation — possible data corruption. ' +
+        'Clear browser data to start fresh.',
+    )
   }
 
   // 2. Initialize KeysManager with current timestamp for ephemeral key uniqueness
@@ -282,7 +289,7 @@ async function doInitializeLdk(): Promise<InitResult> {
   const nodeId = bytesToHex(nodeIdResult.res)
 
   // 12. Create EventHandler
-  const { handler: eventHandler, cleanup: cleanupEventHandler } =
+  const { handler: eventHandler, cleanup: cleanupEventHandler, setBdkWallet } =
     createEventHandler(channelManager)
 
   const node: LdkNode = {
@@ -300,7 +307,7 @@ async function doInitializeLdk(): Promise<InitResult> {
     eventHandler,
   }
 
-  return { node, watchState, cleanupEventHandler }
+  return { node, watchState, cleanupEventHandler, setBdkWallet }
 }
 
 function deserializeMonitors(

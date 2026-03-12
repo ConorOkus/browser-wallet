@@ -1,4 +1,5 @@
 import { createContext } from 'react'
+import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
 import type { LdkNode } from './init'
 
 export type SyncStatus = 'syncing' | 'synced' | 'stale'
@@ -12,6 +13,7 @@ export type LdkContextValue =
       error: null
       syncStatus: SyncStatus
       connectToPeer: (pubkey: string, host: string, port: number) => Promise<void>
+      setBdkWallet: (wallet: Wallet | null) => void
     }
   | { status: 'error'; node: null; nodeId: null; error: Error }
 

@@ -20,21 +20,31 @@ import {
   type ChannelManager,
   type Event,
 } from 'lightningdevkit'
+import {
+  Wallet,
+  Recipient,
+  ScriptBuf,
+  Amount,
+  SignOptions,
+} from '@bitcoindevkit/bdk-wallet-web'
 import { idbPut } from '../storage/idb'
 import { bytesToHex } from '../utils'
+import { putChangeset } from '../../onchain/storage/changeset'
 
 const MAX_FORWARD_DELAY_MS = 10_000
 
 export function createEventHandler(channelManager: ChannelManager): {
   handler: EventHandler
   cleanup: () => void
+  setBdkWallet: (wallet: Wallet | null) => void
 } {
   let forwardTimerId: ReturnType<typeof setTimeout> | null = null
+  let bdkWallet: Wallet | null = null
 
   const handler = EventHandler.new_impl({
     handle_event(event: Event): Result_NoneReplayEventZ {
       try {
-        handleEvent(event, channelManager, (id) => {
+        handleEvent(event, channelManager, bdkWallet, (id) => {
           if (forwardTimerId !== null) clearTimeout(forwardTimerId)
           forwardTimerId = id
         })
@@ -53,12 +63,16 @@ export function createEventHandler(channelManager: ChannelManager): {
         forwardTimerId = null
       }
     },
+    setBdkWallet: (wallet: Wallet | null) => {
+      bdkWallet = wallet
+    },
   }
 }
 
 function handleEvent(
   event: Event,
   channelManager: ChannelManager,
+  bdkWallet: Wallet | null,
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
 ): void {
   // Payment events
@@ -186,22 +200,67 @@ function handleEvent(
     return
   }
 
-  // Deferred events — no wallet/UTXO layer yet
+  // Channel funding — build funding tx with BDK wallet
   if (event instanceof Event_FundingGenerationReady) {
-    console.warn(
-      '[LDK Event] FundingGenerationReady: no wallet layer — cannot fund channel',
-    )
+    if (!bdkWallet) {
+      console.warn(
+        '[LDK Event] FundingGenerationReady: BDK wallet not available — cannot fund channel',
+      )
+      return
+    }
+
+    try {
+      const scriptPubkey = ScriptBuf.from_bytes(event.output_script)
+      const amount = Amount.from_sat(event.channel_value_satoshis)
+      const recipient = new Recipient(scriptPubkey, amount)
+
+      const txBuilder = bdkWallet.build_tx()
+      txBuilder.add_recipient(recipient)
+      const psbt = txBuilder.finish()
+      bdkWallet.sign(psbt, new SignOptions())
+
+      // BDK's Transaction type doesn't expose raw byte serialization.
+      // We broadcast the signed tx via BDK's Esplora client and pass
+      // the PSBT to LDK via funding_transaction_generated once a
+      // cross-WASM serialization bridge is implemented.
+      // For now, log the signed PSBT for debugging.
+      console.log(
+        '[LDK Event] FundingGenerationReady: signed PSBT ready',
+        'channel_value:', event.channel_value_satoshis.toString(), 'sats',
+        'psbt:', psbt.toString().substring(0, 40) + '...',
+      )
+
+      // TODO: Bridge BDK Transaction → raw bytes → LDK funding_transaction_generated()
+      // This requires either:
+      // 1. BDK-WASM exposing Transaction.to_bytes() (feature request)
+      // 2. Parsing the PSBT base64 to extract the finalized tx
+      // 3. Using a shared serialization format between the two WASM modules
+
+      // Persist wallet state after funding
+      const changeset = bdkWallet.take_staged()
+      if (changeset && !changeset.is_empty()) {
+        void putChangeset(changeset.to_json()).catch((err: unknown) =>
+          console.error('[BDK] CRITICAL: failed to persist changeset after funding tx', err),
+        )
+      }
+    } catch (err: unknown) {
+      console.error(
+        '[LDK Event] FundingGenerationReady: failed to build funding tx:',
+        err,
+      )
+    }
     return
   }
 
   if (event instanceof Event_FundingTxBroadcastSafe) {
-    console.warn('[LDK Event] FundingTxBroadcastSafe: no wallet layer')
+    console.log('[LDK Event] FundingTxBroadcastSafe:', bytesToHex(event.channel_id.write()))
     return
   }
 
   if (event instanceof Event_BumpTransaction) {
+    // TODO: Implement CPFP with BDK UTXOs for anchor channels
     console.warn(
-      '[LDK Event] BumpTransaction: no wallet layer — cannot bump fees',
+      '[LDK Event] BumpTransaction: not yet implemented — cannot bump fees',
     )
     return
   }
