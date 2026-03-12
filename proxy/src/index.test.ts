@@ -33,7 +33,6 @@ import worker from './index'
 const env = {
   ALLOWED_ORIGINS: 'http://localhost:5173,https://wallet.example.com',
   ALLOWED_PORTS: '9735',
-  MAX_MESSAGE_SIZE: '65536',
 }
 
 function makeRequest(
@@ -54,66 +53,74 @@ describe('Worker fetch handler', () => {
     mockServer.addEventListener = vi.fn()
   })
 
-  it('returns 426 for non-WebSocket requests', async () => {
-    const response = await worker.fetch(
+  it('returns 426 for non-WebSocket requests', () => {
+    const response = worker.fetch(
       makeRequest('/v1/1_2_3_4/9735', { upgrade: false }),
       env,
     )
     expect(response.status).toBe(426)
   })
 
-  it('returns 403 for unauthorized origin', async () => {
-    const response = await worker.fetch(
+  it('returns 403 for unauthorized origin', () => {
+    const response = worker.fetch(
       makeRequest('/v1/1_2_3_4/9735', { origin: 'https://evil.com' }),
       env,
     )
     expect(response.status).toBe(403)
   })
 
-  it('returns 403 for missing origin', async () => {
-    const response = await worker.fetch(
+  it('returns 403 for missing origin', () => {
+    const response = worker.fetch(
       makeRequest('/v1/1_2_3_4/9735', { origin: null }),
       env,
     )
     expect(response.status).toBe(403)
   })
 
-  it('returns 400 for invalid path', async () => {
-    const response = await worker.fetch(makeRequest('/invalid'), env)
-    expect(response.status).toBe(400)
-    expect(await response.text()).toContain('Invalid path')
-  })
-
-  it('returns 400 for blocked port', async () => {
-    const response = await worker.fetch(makeRequest('/v1/8_8_8_8/80'), env)
-    expect(response.status).toBe(400)
-    expect(await response.text()).toContain('not allowed')
-  })
-
-  it('returns 400 for private IP', async () => {
-    const response = await worker.fetch(
-      makeRequest('/v1/192_168_1_1/9735'),
-      env,
-    )
-    expect(response.status).toBe(400)
-    expect(await response.text()).toContain('private IP')
-  })
-
-  it('returns 400 for loopback', async () => {
-    const response = await worker.fetch(
-      makeRequest('/v1/127_0_0_1/9735'),
-      env,
-    )
+  it('returns 400 for invalid path', () => {
+    const response = worker.fetch(makeRequest('/invalid'), env)
     expect(response.status).toBe(400)
   })
 
-  it('returns 400 for .onion address', async () => {
-    const response = await worker.fetch(
-      makeRequest('/v1/mynode_onion/9735'),
-      env,
-    )
+  it('returns 400 for blocked port', () => {
+    const response = worker.fetch(makeRequest('/v1/8_8_8_8/80'), env)
     expect(response.status).toBe(400)
-    expect(await response.text()).toContain('.onion')
+  })
+
+  it('returns 400 for private IP', () => {
+    const response = worker.fetch(makeRequest('/v1/192_168_1_1/9735'), env)
+    expect(response.status).toBe(400)
+  })
+
+  it('returns 400 for loopback', () => {
+    const response = worker.fetch(makeRequest('/v1/127_0_0_1/9735'), env)
+    expect(response.status).toBe(400)
+  })
+
+  it('returns 400 for localhost hostname', () => {
+    const response = worker.fetch(makeRequest('/v1/localhost/9735'), env)
+    expect(response.status).toBe(400)
+  })
+
+  it('returns 400 for .onion address', () => {
+    const response = worker.fetch(makeRequest('/v1/mynode_onion/9735'), env)
+    expect(response.status).toBe(400)
+  })
+
+  it('returns 500 when ALLOWED_ORIGINS is empty', () => {
+    const response = worker.fetch(makeRequest('/v1/8_8_8_8/9735'), {
+      ...env,
+      ALLOWED_ORIGINS: '',
+    })
+    expect(response.status).toBe(500)
+  })
+
+  it('returns 500 when ALLOWED_PORTS is empty', () => {
+    const response = worker.fetch(makeRequest('/v1/8_8_8_8/9735'), {
+      ...env,
+      ALLOWED_PORTS: '',
+    })
+    expect(response.status).toBe(500)
   })
 
   // The Workers runtime allows Response status 101 with a webSocket property,
@@ -121,8 +128,6 @@ describe('Worker fetch handler', () => {
   // that valid requests pass all validation and reach the WebSocket upgrade
   // (which throws in Node.js but succeeds in the Workers runtime).
   it('passes validation for valid public IP request', () => {
-    // RangeError on status 101 means we passed all validation and reached the upgrade
-    // (Node.js Response rejects status 101; Workers runtime allows it)
     expect(() => worker.fetch(makeRequest('/v1/8_8_8_8/9735'), env)).toThrow(
       RangeError,
     )

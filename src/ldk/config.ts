@@ -7,5 +7,6 @@ export const SIGNET_CONFIG = {
   chainPollIntervalMs: 30_000,
   networkGraphPersistIntervalTicks: 10,
   wsProxyUrl:
-    (import.meta.env.VITE_WS_PROXY_URL as string) || 'wss://p.mutinynet.com',
+    (import.meta.env.VITE_WS_PROXY_URL as string | undefined) ??
+    'wss://p.mutinynet.com',
 } as const

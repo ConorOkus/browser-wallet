@@ -4,7 +4,6 @@ import { parseProxyPath, validateOrigin, validateTarget } from './validation'
 interface Env {
   ALLOWED_ORIGINS: string
   ALLOWED_PORTS: string
-  MAX_MESSAGE_SIZE: string
 }
 
 export default {
@@ -13,10 +12,16 @@ export default {
       return new Response('Expected WebSocket upgrade', { status: 426 })
     }
 
-    const origin = request.headers.get('Origin')
-    const allowedOrigins = env.ALLOWED_ORIGINS.split(',')
+    // Validate env configuration
+    const allowedOrigins = (env.ALLOWED_ORIGINS ?? '')
+      .split(',')
       .map((s) => s.trim())
       .filter(Boolean)
+    if (allowedOrigins.length === 0) {
+      return new Response('Proxy misconfigured', { status: 500 })
+    }
+
+    const origin = request.headers.get('Origin')
     if (!validateOrigin(origin, allowedOrigins)) {
       return new Response('Forbidden', { status: 403 })
     }
@@ -24,15 +29,16 @@ export default {
     const url = new URL(request.url)
     const target = parseProxyPath(url.pathname)
     if (!target) {
-      return new Response('Invalid path. Expected /v1/{host}/{port}', {
-        status: 400,
-      })
+      return new Response('Bad request', { status: 400 })
     }
 
-    const allowedPorts = env.ALLOWED_PORTS.split(',').map((s) =>
-      parseInt(s.trim(), 10),
-    )
-    const maxMessageSize = parseInt(env.MAX_MESSAGE_SIZE, 10)
+    const allowedPorts = (env.ALLOWED_PORTS ?? '')
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => !isNaN(n))
+    if (allowedPorts.length === 0) {
+      return new Response('Proxy misconfigured', { status: 500 })
+    }
 
     const targetError = validateTarget(target.host, target.port, allowedPorts)
     if (targetError) {
@@ -48,36 +54,31 @@ export default {
     const server = pair[1]
     server.accept()
 
-    // Pipe: WebSocket -> TCP
+    // Hold writer for the connection lifetime — the WritableStream
+    // queues writes internally, avoiding lock contention on concurrent messages
+    const writer = tcp.writable.getWriter()
+
+    // Pipe: WebSocket -> TCP (binary frames only — Lightning is binary)
     server.addEventListener('message', (event: MessageEvent) => {
       const data: unknown = event.data
-      if (data instanceof ArrayBuffer && data.byteLength > maxMessageSize) {
-        server.close(1009, 'Message too large')
-        void tcp.close()
+      if (!(data instanceof ArrayBuffer)) {
+        server.close(1003, 'Text frames not supported')
+        void writer.close()
         return
       }
-      const writer = tcp.writable.getWriter()
-      void writer
-        .write(
-          data instanceof ArrayBuffer
-            ? new Uint8Array(data)
-            : new TextEncoder().encode(String(data)),
-        )
-        .then(() => writer.releaseLock())
-        .catch(() => {
-          writer.releaseLock()
-          if (server.readyState === WebSocket.OPEN) {
-            server.close(1011, 'TCP write error')
-          }
-        })
+      void writer.write(new Uint8Array(data)).catch(() => {
+        if (server.readyState === WebSocket.OPEN) {
+          server.close(1011, 'TCP write error')
+        }
+      })
     })
 
     server.addEventListener('close', () => {
-      void tcp.close()
+      void writer.close()
     })
 
     server.addEventListener('error', () => {
-      void tcp.close()
+      void writer.abort()
     })
 
     // Pipe: TCP -> WebSocket

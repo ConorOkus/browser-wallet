@@ -17,8 +17,8 @@ describe('parseProxyPath', () => {
   })
 
   it('parses single-component host', () => {
-    expect(parseProxyPath('/v1/localhost/9735')).toEqual({
-      host: 'localhost',
+    expect(parseProxyPath('/v1/myhost/9735')).toEqual({
+      host: 'myhost',
       port: 9735,
     })
   })
@@ -85,25 +85,19 @@ describe('validateOrigin', () => {
 describe('validateTarget', () => {
   const allowedPorts = [9735]
 
-  it('allows port 9735', () => {
+  it('allows port 9735 with public IP', () => {
     expect(validateTarget('8.8.8.8', 9735, allowedPorts)).toBeNull()
   })
 
-  it('rejects port 80', () => {
+  it('rejects disallowed port', () => {
     expect(validateTarget('8.8.8.8', 80, allowedPorts)).not.toBeNull()
   })
 
-  it('rejects port 22', () => {
-    expect(validateTarget('8.8.8.8', 22, allowedPorts)).not.toBeNull()
-  })
-
   it('rejects .onion addresses', () => {
-    expect(
-      validateTarget('mynode.onion', 9735, allowedPorts),
-    ).toContain('.onion')
+    expect(validateTarget('mynode.onion', 9735, allowedPorts)).not.toBeNull()
   })
 
-  // SSRF: private IP ranges
+  // SSRF: private IPv4 ranges
   it('blocks 10.x.x.x', () => {
     expect(validateTarget('10.0.0.1', 9735, allowedPorts)).not.toBeNull()
   })
@@ -160,7 +154,59 @@ describe('validateTarget', () => {
     expect(validateTarget('8.8.8.8', 9735, allowedPorts)).toBeNull()
   })
 
-  it('allows hostname (cannot validate DNS)', () => {
+  it('allows public hostname', () => {
     expect(validateTarget('node.example.com', 9735, allowedPorts)).toBeNull()
+  })
+
+  // DNS rebinding protection: well-known private hostnames
+  it('blocks localhost', () => {
+    expect(validateTarget('localhost', 9735, allowedPorts)).not.toBeNull()
+  })
+
+  it('blocks localhost case-insensitive', () => {
+    expect(validateTarget('LOCALHOST', 9735, allowedPorts)).not.toBeNull()
+  })
+
+  it('blocks .local domains', () => {
+    expect(validateTarget('myhost.local', 9735, allowedPorts)).not.toBeNull()
+  })
+
+  it('blocks .internal domains', () => {
+    expect(
+      validateTarget('service.internal', 9735, allowedPorts),
+    ).not.toBeNull()
+  })
+
+  it('blocks .localhost domains', () => {
+    expect(
+      validateTarget('app.localhost', 9735, allowedPorts),
+    ).not.toBeNull()
+  })
+
+  // IPv6 loopback and private literals
+  it('blocks ::1', () => {
+    expect(validateTarget('::1', 9735, allowedPorts)).not.toBeNull()
+  })
+
+  it('blocks [::1]', () => {
+    expect(validateTarget('[::1]', 9735, allowedPorts)).not.toBeNull()
+  })
+
+  it('blocks ::ffff: mapped addresses', () => {
+    expect(
+      validateTarget('::ffff:127.0.0.1', 9735, allowedPorts),
+    ).not.toBeNull()
+  })
+
+  it('blocks fc00:: (IPv6 ULA)', () => {
+    expect(validateTarget('fc00::1', 9735, allowedPorts)).not.toBeNull()
+  })
+
+  it('blocks fd00:: (IPv6 ULA)', () => {
+    expect(validateTarget('fd00::1', 9735, allowedPorts)).not.toBeNull()
+  })
+
+  it('blocks fe80:: (IPv6 link-local)', () => {
+    expect(validateTarget('fe80::1', 9735, allowedPorts)).not.toBeNull()
   })
 })
