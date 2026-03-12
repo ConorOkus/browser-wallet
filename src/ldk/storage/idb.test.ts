@@ -16,6 +16,8 @@ describe('IndexedDB storage', () => {
     expect(db.objectStoreNames.contains('ldk_channel_manager')).toBe(true)
     expect(db.objectStoreNames.contains('ldk_network_graph')).toBe(true)
     expect(db.objectStoreNames.contains('ldk_scorer')).toBe(true)
+    expect(db.objectStoreNames.contains('wallet_mnemonic')).toBe(true)
+    expect(db.objectStoreNames.contains('bdk_changeset')).toBe(true)
   })
 
   it('puts and gets a value', async () => {

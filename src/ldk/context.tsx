@@ -7,7 +7,13 @@ import { startSyncLoop } from './sync/chain-sync'
 import { connectToPeer as doConnectToPeer } from './peers/peer-connection'
 import { idbPut } from './storage/idb'
 
-export function LdkProvider({ children }: { children: ReactNode }) {
+export function LdkProvider({
+  children,
+  ldkSeed,
+}: {
+  children: ReactNode
+  ldkSeed: Uint8Array
+}) {
   const [state, setState] = useState<LdkContextValue>(defaultLdkContextValue)
   const nodeRef = useRef<LdkNode | null>(null)
 
@@ -25,7 +31,7 @@ export function LdkProvider({ children }: { children: ReactNode }) {
     let peerTimerId: ReturnType<typeof setInterval> | null = null
     let cleanupEventHandlerFn: (() => void) | null = null
 
-    initializeLdk()
+    initializeLdk(ldkSeed)
       .then(({ node, watchState, cleanupEventHandler }) => {
         if (cancelled) return
 
@@ -102,7 +108,7 @@ export function LdkProvider({ children }: { children: ReactNode }) {
       if (peerTimerId !== null) clearInterval(peerTimerId)
       nodeRef.current = null
     }
-  }, [connectToPeer])
+  }, [connectToPeer, ldkSeed])
 
   return <LdkContext value={state}>{children}</LdkContext>
 }

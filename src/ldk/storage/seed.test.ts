@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { getSeed, generateAndStoreSeed } from './seed'
+import { getSeed, storeDerivedSeed } from './seed'
 import { idbDelete } from './idb'
 
 beforeEach(async () => {
-  // Clear seed between tests
   await idbDelete('ldk_seed', 'primary')
 })
 
@@ -13,28 +12,24 @@ describe('seed storage', () => {
     expect(seed).toBeUndefined()
   })
 
-  it('generates a 32-byte seed and persists it', async () => {
-    const seed = await generateAndStoreSeed()
-    expect(seed).toBeInstanceOf(Uint8Array)
-    expect(seed.length).toBe(32)
+  it('stores a 32-byte derived seed and retrieves it', async () => {
+    const seed = new Uint8Array(32)
+    crypto.getRandomValues(seed)
+    await storeDerivedSeed(seed)
 
     const retrieved = await getSeed()
     expect(Array.from(retrieved!)).toEqual(Array.from(seed))
   })
 
   it('throws if a seed already exists', async () => {
-    await generateAndStoreSeed()
-    await expect(generateAndStoreSeed()).rejects.toThrow('Seed already exists')
+    const seed = new Uint8Array(32)
+    crypto.getRandomValues(seed)
+    await storeDerivedSeed(seed)
+    await expect(storeDerivedSeed(seed)).rejects.toThrow('Seed already exists')
   })
 
-  it('generates different seeds across calls', async () => {
-    const seed1 = await generateAndStoreSeed()
-
-    // Clear seed to allow generating another
-    await idbDelete('ldk_seed', 'primary')
-    const seed2 = await generateAndStoreSeed()
-
-    // Extremely unlikely to be equal with crypto.getRandomValues
-    expect(seed1).not.toEqual(seed2)
+  it('throws if seed is not 32 bytes', async () => {
+    const badSeed = new Uint8Array(16)
+    await expect(storeDerivedSeed(badSeed)).rejects.toThrow('Expected 32-byte seed')
   })
 })

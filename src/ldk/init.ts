@@ -30,7 +30,7 @@ import {
   type ChannelMonitor,
   type EventHandler,
 } from 'lightningdevkit'
-import { getSeed, generateAndStoreSeed } from './storage/seed'
+import { getSeed, storeDerivedSeed } from './storage/seed'
 import { createLogger } from './traits/logger'
 import { createFeeEstimator } from './traits/fee-estimator'
 import { createBroadcaster } from './traits/broadcaster'
@@ -84,7 +84,7 @@ async function acquireWalletLock(): Promise<void> {
   }
 
   return new Promise<void>((resolve, reject) => {
-    void navigator.locks.request('ldk-wallet-lock', { ifAvailable: true }, (lock) => {
+    void navigator.locks.request('browser-wallet-lock', { ifAvailable: true }, (lock) => {
       if (!lock) {
         reject(new Error('Wallet is already open in another tab'))
         return Promise.resolve()
@@ -100,9 +100,9 @@ async function acquireWalletLock(): Promise<void> {
 // The second mount reuses the in-flight promise instead of fighting for the Web Lock.
 let initPromise: Promise<InitResult> | null = null
 
-export function initializeLdk(): Promise<InitResult> {
+export function initializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   if (!initPromise) {
-    initPromise = doInitializeLdk().catch((err) => {
+    initPromise = doInitializeLdk(ldkSeed).catch((err) => {
       initPromise = null
       throw err
     })
@@ -110,15 +110,16 @@ export function initializeLdk(): Promise<InitResult> {
   return initPromise
 }
 
-async function doInitializeLdk(): Promise<InitResult> {
+async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   // 0. Safety: acquire multi-tab lock and init WASM
   await acquireWalletLock()
   await initWasm()
 
-  // 1. Get or create seed
+  // 1. Persist derived seed to IDB (no-op if already stored from a previous session)
   let seed = await getSeed()
   if (!seed) {
-    seed = await generateAndStoreSeed()
+    await storeDerivedSeed(ldkSeed)
+    seed = ldkSeed
   }
 
   // 2. Initialize KeysManager with current timestamp for ephemeral key uniqueness
