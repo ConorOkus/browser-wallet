@@ -4,34 +4,83 @@ import {
   type OutPoint,
   type ChannelMonitor,
   type ChannelMonitorUpdate,
+  type ChainMonitor,
 } from 'lightningdevkit'
 import { idbPut, idbDelete } from '../storage/idb'
+import { bytesToHex } from '../utils'
 
 function outpointKey(outpoint: OutPoint): string {
-  const txid = Array.from(outpoint.get_txid())
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-  return `${txid}:${outpoint.get_index().toString()}`
+  return `${bytesToHex(outpoint.get_txid())}:${outpoint.get_index().toString()}`
 }
 
-export function createPersister(): Persist {
-  return Persist.new_impl({
+const MAX_PERSIST_RETRIES = 3
+const RETRY_DELAY_MS = 500
+
+async function persistWithRetry(
+  store: 'ldk_channel_monitors',
+  key: string,
+  data: Uint8Array
+): Promise<void> {
+  for (let attempt = 1; attempt <= MAX_PERSIST_RETRIES; attempt++) {
+    try {
+      await idbPut(store, key, data)
+      return
+    } catch (err: unknown) {
+      console.error(
+        `[LDK Persist] Write attempt ${attempt}/${MAX_PERSIST_RETRIES} failed:`,
+        err
+      )
+      if (attempt < MAX_PERSIST_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt))
+      }
+    }
+  }
+  throw new Error(`[LDK Persist] Failed to persist after ${MAX_PERSIST_RETRIES} attempts`)
+}
+
+export interface PersistError {
+  key: string
+  error: Error
+}
+
+export function createPersister(): {
+  persist: Persist
+  setChainMonitor: (cm: ChainMonitor) => void
+  onPersistFailure: (handler: (err: PersistError) => void) => void
+} {
+  let chainMonitorRef: ChainMonitor | null = null
+  let failureHandler: ((err: PersistError) => void) | null = null
+
+  function handlePersist(
+    channel_funding_outpoint: OutPoint,
+    monitor: ChannelMonitor
+  ): void {
+    const key = outpointKey(channel_funding_outpoint)
+    const data = monitor.write()
+    const updateId = monitor.get_latest_update_id()
+
+    persistWithRetry('ldk_channel_monitors', key, data)
+      .then(() => {
+        if (chainMonitorRef) {
+          chainMonitorRef.channel_monitor_updated(channel_funding_outpoint, updateId)
+        }
+      })
+      .catch((err: unknown) => {
+        // Do NOT call channel_monitor_updated — LDK will halt channel operations (safe)
+        const error = err instanceof Error ? err : new Error(String(err))
+        console.error(`[LDK Persist] CRITICAL: Monitor persistence failed for ${key}:`, error)
+        if (failureHandler) {
+          failureHandler({ key, error })
+        }
+      })
+  }
+
+  const persist = Persist.new_impl({
     persist_new_channel(
       channel_funding_outpoint: OutPoint,
       monitor: ChannelMonitor
     ): ChannelMonitorUpdateStatus {
-      const key = outpointKey(channel_funding_outpoint)
-      const data = monitor.write()
-
-      // IndexedDB is async but Persist methods are sync.
-      // We persist asynchronously and return InProgress, then notify
-      // ChainMonitor when complete. For the foundation layer this is
-      // acceptable — full async persistence with ChainMonitor callback
-      // will be implemented when ChannelManager is added.
-      idbPut('ldk_channel_monitors', key, data).catch((err: unknown) => {
-        console.error('[LDK Persist] Failed to persist new channel monitor:', err)
-      })
-
+      handlePersist(channel_funding_outpoint, monitor)
       return ChannelMonitorUpdateStatus.LDKChannelMonitorUpdateStatus_InProgress
     },
 
@@ -40,23 +89,25 @@ export function createPersister(): Persist {
       _monitor_update: ChannelMonitorUpdate | null,
       monitor: ChannelMonitor
     ): ChannelMonitorUpdateStatus {
-      const key = outpointKey(channel_funding_outpoint)
-      // Persist the full updated monitor (simplest approach)
-      const data = monitor.write()
-
-      idbPut('ldk_channel_monitors', key, data).catch((err: unknown) => {
-        console.error('[LDK Persist] Failed to update channel monitor:', err)
-      })
-
+      handlePersist(channel_funding_outpoint, monitor)
       return ChannelMonitorUpdateStatus.LDKChannelMonitorUpdateStatus_InProgress
     },
 
     archive_persisted_channel(channel_funding_outpoint: OutPoint): void {
       const key = outpointKey(channel_funding_outpoint)
-      // Move to an archived prefix rather than deleting
       idbDelete('ldk_channel_monitors', key).catch((err: unknown) => {
-        console.error('[LDK Persist] Failed to archive channel monitor:', err)
+        console.error('[LDK Persist] Failed to delete archived channel monitor:', err)
       })
     },
   })
+
+  return {
+    persist,
+    setChainMonitor: (cm: ChainMonitor) => {
+      chainMonitorRef = cm
+    },
+    onPersistFailure: (handler: (err: PersistError) => void) => {
+      failureHandler = handler
+    },
+  }
 }
