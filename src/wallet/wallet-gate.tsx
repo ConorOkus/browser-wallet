@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react'
 import { useWallet } from './use-wallet'
 import { LdkProvider } from '../ldk/context'
+import { OnchainProvider } from '../onchain/context'
 
 export function WalletGate({ children }: { children: ReactNode }) {
   const wallet = useWallet()
@@ -71,10 +72,12 @@ export function WalletGate({ children }: { children: ReactNode }) {
     )
   }
 
-  // status === 'ready' — render LdkProvider with derived seed, then children
+  // status === 'ready' — render providers with derived keys, then children
   return (
     <LdkProvider ldkSeed={wallet.ldkSeed}>
-      {children}
+      <OnchainProvider bdkDescriptors={wallet.bdkDescriptors}>
+        {children}
+      </OnchainProvider>
     </LdkProvider>
   )
 }
