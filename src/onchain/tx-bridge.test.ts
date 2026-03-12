@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { extractTxBytes, txBytesToHex, broadcastTransaction } from './tx-bridge'
+import { extractTxBytes, broadcastTransaction } from './tx-bridge'
 import { Transaction, p2wpkh, TEST_NETWORK } from '@scure/btc-signer'
 import { HDKey } from '@scure/bip32'
 import { hexToBytes } from '../ldk/utils'
@@ -53,17 +53,6 @@ describe('tx-bridge', () => {
 
     it('throws on invalid base64', () => {
       expect(() => extractTxBytes('not-valid-base64!!!')).toThrow()
-    })
-  })
-
-  describe('txBytesToHex', () => {
-    it('converts bytes to hex string', () => {
-      const bytes = new Uint8Array([0x00, 0x0a, 0xff, 0x10])
-      expect(txBytesToHex(bytes)).toBe('000aff10')
-    })
-
-    it('handles empty array', () => {
-      expect(txBytesToHex(new Uint8Array([]))).toBe('')
     })
   })
 

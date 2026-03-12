@@ -30,15 +30,10 @@ import {
 import { idbPut } from '../storage/idb'
 import { bytesToHex } from '../utils'
 import { putChangeset } from '../../onchain/storage/changeset'
-import { extractTxBytes, txBytesToHex, broadcastTransaction } from '../../onchain/tx-bridge'
+import { extractTxBytes, broadcastTransaction } from '../../onchain/tx-bridge'
 import { ONCHAIN_CONFIG } from '../../onchain/config'
 
 const MAX_FORWARD_DELAY_MS = 10_000
-
-// In-memory cache of signed funding transactions waiting for FundingTxBroadcastSafe.
-// Keyed by temporary_channel_id hex → raw tx hex.
-// TEMPORARY: Remove when bdk-wasm exposes Transaction.to_bytes() (bdk-wasm#38)
-const fundingTxCache = new Map<string, string>()
 
 export function createEventHandler(channelManager: ChannelManager): {
   handler: EventHandler
@@ -48,10 +43,15 @@ export function createEventHandler(channelManager: ChannelManager): {
   let forwardTimerId: ReturnType<typeof setTimeout> | null = null
   let bdkWallet: Wallet | null = null
 
+  // In-memory cache of signed funding transactions waiting for FundingTxBroadcastSafe.
+  // Keyed by temporary_channel_id hex → raw tx hex.
+  // TEMPORARY: Remove when bdk-wasm exposes Transaction.to_bytes() (bdk-wasm#38)
+  const fundingTxCache = new Map<string, string>()
+
   const handler = EventHandler.new_impl({
     handle_event(event: Event): Result_NoneReplayEventZ {
       try {
-        handleEvent(event, channelManager, bdkWallet, (id) => {
+        handleEvent(event, channelManager, bdkWallet, fundingTxCache, (id) => {
           if (forwardTimerId !== null) clearTimeout(forwardTimerId)
           forwardTimerId = id
         })
@@ -69,6 +69,7 @@ export function createEventHandler(channelManager: ChannelManager): {
         clearTimeout(forwardTimerId)
         forwardTimerId = null
       }
+      fundingTxCache.clear()
     },
     setBdkWallet: (wallet: Wallet | null) => {
       bdkWallet = wallet
@@ -80,6 +81,7 @@ function handleEvent(
   event: Event,
   channelManager: ChannelManager,
   bdkWallet: Wallet | null,
+  fundingTxCache: Map<string, string>,
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
 ): void {
   // Payment events
@@ -245,7 +247,7 @@ function handleEvent(
 
       // Cache the raw tx hex for broadcasting when FundingTxBroadcastSafe fires
       const tempChannelIdHex = bytesToHex(event.temporary_channel_id.write())
-      const txHex = txBytesToHex(rawTxBytes)
+      const txHex = bytesToHex(rawTxBytes)
       fundingTxCache.set(tempChannelIdHex, txHex)
 
       console.log(
@@ -275,13 +277,16 @@ function handleEvent(
     const txHex = fundingTxCache.get(tempChannelIdHex)
 
     if (txHex) {
-      fundingTxCache.delete(tempChannelIdHex)
       void broadcastTransaction(txHex, ONCHAIN_CONFIG.esploraUrl)
         .then((txid) => {
+          fundingTxCache.delete(tempChannelIdHex)
           console.log('[LDK Event] FundingTxBroadcastSafe: broadcast tx:', txid)
         })
         .catch((err: unknown) => {
-          console.error('[LDK Event] FundingTxBroadcastSafe: broadcast failed:', err)
+          console.error(
+            '[LDK Event] FundingTxBroadcastSafe: broadcast failed (tx retained in cache):',
+            err,
+          )
         })
     } else {
       console.warn(

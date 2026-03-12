@@ -14,11 +14,6 @@ export function extractTxBytes(psbtBase64: string): Uint8Array {
   return tx.extract()
 }
 
-/** Convert raw transaction bytes to hex string for Esplora broadcasting */
-export function txBytesToHex(txBytes: Uint8Array): string {
-  return Array.from(txBytes, (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
 /** Broadcast a raw transaction hex to Esplora POST /tx, returns the txid */
 export async function broadcastTransaction(
   txHex: string,
@@ -28,11 +23,11 @@ export async function broadcastTransaction(
     method: 'POST',
     body: txHex,
   })
+  const body = await response.text()
   if (!response.ok) {
-    const body = await response.text()
     throw new Error(`Esplora broadcast failed: ${response.status} ${body}`)
   }
-  return response.text()
+  return body
 }
 
 function base64ToBytes(base64: string): Uint8Array {

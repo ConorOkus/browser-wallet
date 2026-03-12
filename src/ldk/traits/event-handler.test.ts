@@ -109,11 +109,9 @@ vi.mock('../storage/idb', () => ({
 }))
 
 const mockExtractTxBytes = vi.fn(() => new Uint8Array([0xde, 0xad]))
-const mockTxBytesToHex = vi.fn(() => 'dead')
 const mockBroadcastTransaction = vi.fn(() => Promise.resolve('txid123'))
 vi.mock('../../onchain/tx-bridge', () => ({
   extractTxBytes: (...args: unknown[]) => mockExtractTxBytes(...args),
-  txBytesToHex: (...args: unknown[]) => mockTxBytesToHex(...args),
   broadcastTransaction: (...args: unknown[]) => mockBroadcastTransaction(...args),
 }))
 
@@ -366,6 +364,31 @@ describe('createEventHandler', () => {
       expect.any(String),
       expect.any(String),
       expect.any(String),
+      expect.any(String),
+      expect.any(String),
+    )
+    result.cleanup()
+  })
+
+  it('does not cache tx when funding_transaction_generated fails', () => {
+    mockFundingTransactionGenerated.mockReturnValueOnce({ is_ok: () => false })
+    const cm = createMockChannelManager()
+    const result = createEventHandler(cm)
+    result.setBdkWallet(mockBdkWallet as never)
+    const handler = (
+      result.handler as unknown as { _impl: { handle_event: HandleEventFn } }
+    )._impl.handle_event
+
+    handler(new Event_FundingGenerationReady())
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('funding_transaction_generated failed'),
+    )
+    // Verify broadcast is never called (no cached tx)
+    handler(new Event_FundingTxBroadcastSafe())
+    expect(mockBroadcastTransaction).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('no cached tx'),
       expect.any(String),
       expect.any(String),
     )
