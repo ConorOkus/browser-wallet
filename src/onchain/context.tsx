@@ -26,6 +26,10 @@ export function OnchainProvider({
   const setBdkWalletRef = useRef<((wallet: Wallet | null) => void) | null>(null)
   useEffect(() => {
     setBdkWalletRef.current = ldk.status === 'ready' ? ldk.setBdkWallet : null
+    // If BDK wallet initialized before LDK became ready, register it now
+    if (walletRef.current && setBdkWalletRef.current) {
+      setBdkWalletRef.current(walletRef.current)
+    }
   }, [ldk])
 
   const generateAddress = useCallback((): string => {
