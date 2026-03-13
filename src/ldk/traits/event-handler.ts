@@ -30,6 +30,8 @@ import {
 import { idbPut } from '../storage/idb'
 import { bytesToHex } from '../utils'
 import { putChangeset } from '../../onchain/storage/changeset'
+import { extractTxBytes, broadcastTransaction } from '../../onchain/tx-bridge'
+import { ONCHAIN_CONFIG } from '../../onchain/config'
 
 const MAX_FORWARD_DELAY_MS = 10_000
 
@@ -41,10 +43,15 @@ export function createEventHandler(channelManager: ChannelManager): {
   let forwardTimerId: ReturnType<typeof setTimeout> | null = null
   let bdkWallet: Wallet | null = null
 
+  // In-memory cache of signed funding transactions waiting for FundingTxBroadcastSafe.
+  // Keyed by temporary_channel_id hex → raw tx hex.
+  // TEMPORARY: Remove when bdk-wasm exposes Transaction.to_bytes() (bdk-wasm#38)
+  const fundingTxCache = new Map<string, string>()
+
   const handler = EventHandler.new_impl({
     handle_event(event: Event): Result_NoneReplayEventZ {
       try {
-        handleEvent(event, channelManager, bdkWallet, (id) => {
+        handleEvent(event, channelManager, bdkWallet, fundingTxCache, (id) => {
           if (forwardTimerId !== null) clearTimeout(forwardTimerId)
           forwardTimerId = id
         })
@@ -62,6 +69,7 @@ export function createEventHandler(channelManager: ChannelManager): {
         clearTimeout(forwardTimerId)
         forwardTimerId = null
       }
+      fundingTxCache.clear()
     },
     setBdkWallet: (wallet: Wallet | null) => {
       bdkWallet = wallet
@@ -73,6 +81,7 @@ function handleEvent(
   event: Event,
   channelManager: ChannelManager,
   bdkWallet: Wallet | null,
+  fundingTxCache: Map<string, string>,
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
 ): void {
   // Payment events
@@ -200,7 +209,8 @@ function handleEvent(
     return
   }
 
-  // Channel funding — build funding tx with BDK wallet
+  // Channel funding — build funding tx with BDK wallet, extract raw bytes via
+  // tx-bridge, and pass to LDK's funding_transaction_generated()
   if (event instanceof Event_FundingGenerationReady) {
     if (!bdkWallet) {
       console.warn(
@@ -219,24 +229,34 @@ function handleEvent(
       const psbt = txBuilder.finish()
       bdkWallet.sign(psbt, new SignOptions())
 
-      // BDK's Transaction type doesn't expose raw byte serialization.
-      // We broadcast the signed tx via BDK's Esplora client and pass
-      // the PSBT to LDK via funding_transaction_generated once a
-      // cross-WASM serialization bridge is implemented.
-      // For now, log the signed PSBT for debugging.
+      // Extract raw tx bytes from signed PSBT via @scure/btc-signer bridge
+      const rawTxBytes = extractTxBytes(psbt.toString())
+
+      // Notify LDK of the funding transaction
+      const result = channelManager.funding_transaction_generated(
+        event.temporary_channel_id,
+        event.counterparty_node_id,
+        rawTxBytes,
+      )
+      if (!result.is_ok()) {
+        console.error(
+          '[LDK Event] FundingGenerationReady: funding_transaction_generated failed',
+        )
+        return
+      }
+
+      // Cache the raw tx hex for broadcasting when FundingTxBroadcastSafe fires
+      const tempChannelIdHex = bytesToHex(event.temporary_channel_id.write())
+      const txHex = bytesToHex(rawTxBytes)
+      fundingTxCache.set(tempChannelIdHex, txHex)
+
       console.log(
-        '[LDK Event] FundingGenerationReady: signed PSBT ready',
+        '[LDK Event] FundingGenerationReady: funding tx registered',
         'channel_value:', event.channel_value_satoshis.toString(), 'sats',
-        'psbt:', psbt.toString().substring(0, 40) + '...',
+        'tempChannelId:', tempChannelIdHex.substring(0, 16) + '...',
       )
 
-      // TODO: Bridge BDK Transaction → raw bytes → LDK funding_transaction_generated()
-      // This requires either:
-      // 1. BDK-WASM exposing Transaction.to_bytes() (feature request)
-      // 2. Parsing the PSBT base64 to extract the finalized tx
-      // 3. Using a shared serialization format between the two WASM modules
-
-      // Persist wallet state after funding
+      // Persist wallet state after successful funding
       const changeset = bdkWallet.take_staged()
       if (changeset && !changeset.is_empty()) {
         void putChangeset(changeset.to_json()).catch((err: unknown) =>
@@ -253,7 +273,28 @@ function handleEvent(
   }
 
   if (event instanceof Event_FundingTxBroadcastSafe) {
-    console.log('[LDK Event] FundingTxBroadcastSafe:', bytesToHex(event.channel_id.write()))
+    const tempChannelIdHex = bytesToHex(event.former_temporary_channel_id.write())
+    const txHex = fundingTxCache.get(tempChannelIdHex)
+
+    if (txHex) {
+      void broadcastTransaction(txHex, ONCHAIN_CONFIG.esploraUrl)
+        .then((txid) => {
+          fundingTxCache.delete(tempChannelIdHex)
+          console.log('[LDK Event] FundingTxBroadcastSafe: broadcast tx:', txid)
+        })
+        .catch((err: unknown) => {
+          console.error(
+            '[LDK Event] FundingTxBroadcastSafe: broadcast failed (tx retained in cache):',
+            err,
+          )
+        })
+    } else {
+      console.warn(
+        '[LDK Event] FundingTxBroadcastSafe: no cached tx for',
+        tempChannelIdHex.substring(0, 16) + '...',
+        '— may have been cleaned up or tab was reloaded',
+      )
+    }
     return
   }
 
@@ -266,7 +307,13 @@ function handleEvent(
   }
 
   if (event instanceof Event_DiscardFunding) {
-    console.log('[LDK Event] DiscardFunding')
+    // DiscardFunding provides channel_id (final, not temporary) so we cannot
+    // directly look up the cached tx. The leaked cache entry is acceptable for
+    // this temporary workaround — it's cleaned up on tab refresh.
+    console.log(
+      '[LDK Event] DiscardFunding:',
+      bytesToHex(event.channel_id.write()).substring(0, 16) + '...',
+    )
     return
   }
 
