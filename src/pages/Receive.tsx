@@ -7,12 +7,13 @@ export function Receive() {
   const onchain = useOnchain()
   const [address, setAddress] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const generateAddress = onchain.status === 'ready' ? onchain.generateAddress : null
 
   useEffect(() => {
-    if (onchain.status === 'ready' && address === null) {
-      setAddress(onchain.generateAddress())
+    if (generateAddress && address === null) {
+      setAddress(generateAddress())
     }
-  }, [onchain, address])
+  }, [generateAddress, address])
 
   const handleCopy = useCallback(async () => {
     if (!address) return

@@ -46,28 +46,25 @@ export function Home() {
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">Browser Wallet</h1>
 
-      {onchain.status === 'ready' && (() => {
-        const pending = onchain.balance.trustedPending + onchain.balance.untrustedPending
-        return (
-          <div className="space-y-2">
-            <h2 className="text-lg font-semibold">On-chain Balance</h2>
-            <p className="text-2xl font-bold">
-              {onchain.balance.confirmed.toString()} sats
+      {onchain.status === 'ready' && (
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold">On-chain Balance</h2>
+          <p className="text-2xl font-bold">
+            {onchain.balance.confirmed.toString()} sats
+          </p>
+          {onchain.balance.trustedPending + onchain.balance.untrustedPending > 0n && (
+            <p className="text-sm text-gray-500">
+              +{(onchain.balance.trustedPending + onchain.balance.untrustedPending).toString()} sats pending
             </p>
-            {pending > 0n && (
-              <p className="text-sm text-gray-500">
-                +{pending.toString()} sats pending
-              </p>
-            )}
-            <Link
-              to="/receive"
-              className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
-            >
-              Receive
-            </Link>
-          </div>
-        )
-      })()}
+          )}
+          <Link
+            to="/receive"
+            className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
+          >
+            Receive
+          </Link>
+        </div>
+      )}
 
       {onchain.status === 'loading' && (
         <p className="text-gray-500">Loading on-chain wallet...</p>
