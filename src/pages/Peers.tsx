@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useLdk } from '../ldk/use-ldk'
 import { parsePeerAddress } from '../ldk/peers/peer-connection'
 import { getKnownPeers, type KnownPeer } from '../ldk/storage/known-peers'
+import { bytesToHex } from '../ldk/utils'
 import { ScreenHeader } from '../components/ScreenHeader'
 
 interface PeerEntry {
@@ -11,12 +12,6 @@ interface PeerEntry {
   host?: string
   port?: number
   hasChannels: boolean
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
 }
 
 export function Peers() {
