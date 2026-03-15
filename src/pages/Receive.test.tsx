@@ -75,32 +75,33 @@ describe('Receive', () => {
 
   describe('focus trap', () => {
     it('focuses the first focusable element on mount', () => {
-      renderWithOnchain(readyContext())
-      const copyButton = screen.getByRole('button', { name: /copy address/i })
-      expect(copyButton).toHaveFocus()
+      renderReceive(readyContext())
+      // The close button in ScreenHeader is the first focusable element
+      const closeButton = screen.getByRole('button', { name: /close/i })
+      expect(closeButton).toHaveFocus()
     })
 
     it('wraps focus from last to first element on Tab', async () => {
       const user = userEvent.setup()
-      renderWithOnchain(readyContext())
+      renderReceive(readyContext())
 
-      const copyButton = screen.getByRole('button', { name: /copy address/i })
-      expect(copyButton).toHaveFocus()
-
-      // Tab on the last (and only) focusable element should wrap to first
+      // Tab past the last focusable element should wrap to first
+      const closeButton = screen.getByRole('button', { name: /close/i })
+      const copyButton = screen.getByRole('button', { name: /copy/i })
+      copyButton.focus()
       await user.keyboard('{Tab}')
-      expect(copyButton).toHaveFocus()
+      expect(closeButton).toHaveFocus()
     })
 
     it('wraps focus from first to last element on Shift+Tab', async () => {
       const user = userEvent.setup()
-      renderWithOnchain(readyContext())
+      renderReceive(readyContext())
 
-      const copyButton = screen.getByRole('button', { name: /copy address/i })
-      expect(copyButton).toHaveFocus()
-
-      // Shift+Tab on the first element should wrap to last
+      const closeButton = screen.getByRole('button', { name: /close/i })
+      closeButton.focus()
       await user.keyboard('{Shift>}{Tab}{/Shift}')
+      // Should wrap to last focusable element (Copy button)
+      const copyButton = screen.getByRole('button', { name: /copy/i })
       expect(copyButton).toHaveFocus()
     })
   })

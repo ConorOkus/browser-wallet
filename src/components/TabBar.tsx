@@ -17,7 +17,7 @@ export function TabBar() {
 
   return (
     <nav
-      className="fixed bottom-0 left-1/2 z-100 flex h-(--spacing-tab-bar) w-full max-w-[430px] -translate-x-1/2 items-center justify-evenly bg-accent px-4"
+      className="fixed bottom-0 left-1/2 z-100 flex w-full max-w-[430px] -translate-x-1/2 items-center justify-evenly bg-accent px-4 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]"
       role="navigation"
       aria-label="Main navigation"
     >
