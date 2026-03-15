@@ -7,6 +7,7 @@ import { Settings } from '../pages/Settings'
 import { Activity } from '../pages/Activity'
 import { Advanced } from '../pages/Advanced'
 import { Peers } from '../pages/Peers'
+import { Backup } from '../pages/Backup'
 
 export const router = createBrowserRouter([
   {
@@ -18,6 +19,7 @@ export const router = createBrowserRouter([
       { path: 'send', element: <Send /> },
       { path: 'activity', element: <Activity /> },
       { path: 'settings', element: <Settings /> },
+      { path: 'settings/backup', element: <Backup /> },
       { path: 'settings/advanced', element: <Advanced /> },
       { path: 'settings/advanced/peers', element: <Peers /> },
     ],

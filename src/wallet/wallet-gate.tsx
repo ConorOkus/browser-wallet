@@ -2,6 +2,7 @@ import { type ReactNode } from 'react'
 import { useWallet } from './use-wallet'
 import { LdkProvider } from '../ldk/context'
 import { OnchainProvider } from '../onchain/context'
+import { MnemonicWordGrid } from '../components/MnemonicWordGrid'
 
 export function WalletGate({ children }: { children: ReactNode }) {
   const wallet = useWallet()
@@ -46,13 +47,7 @@ export function WalletGate({ children }: { children: ReactNode }) {
           <p className="text-gray-400">
             Write down these 12 words in order. They are the only way to recover your wallet.
           </p>
-          <div className="rounded bg-gray-800 p-4 font-mono text-sm">
-            {wallet.mnemonic.split(' ').map((word, i) => (
-              <span key={i} className="mr-3 inline-block">
-                <span className="text-gray-500">{i + 1}.</span> {word}
-              </span>
-            ))}
-          </div>
+          <MnemonicWordGrid words={wallet.mnemonic.split(' ')} />
           <button
             onClick={() => void wallet.confirmBackup()}
             className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
@@ -65,19 +60,13 @@ export function WalletGate({ children }: { children: ReactNode }) {
   }
 
   if (wallet.status === 'error') {
-    return (
-      <div className="p-4 text-red-400">
-        Wallet error: {wallet.error.message}
-      </div>
-    )
+    return <div className="p-4 text-red-400">Wallet error: {wallet.error.message}</div>
   }
 
   // status === 'ready' — render providers with derived keys, then children
   return (
     <LdkProvider ldkSeed={wallet.ldkSeed}>
-      <OnchainProvider bdkDescriptors={wallet.bdkDescriptors}>
-        {children}
-      </OnchainProvider>
+      <OnchainProvider bdkDescriptors={wallet.bdkDescriptors}>{children}</OnchainProvider>
     </LdkProvider>
   )
 }
