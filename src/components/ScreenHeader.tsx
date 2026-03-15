@@ -3,18 +3,26 @@ import { useNavigate } from 'react-router'
 interface ScreenHeaderProps {
   title: string
   backTo?: string
+  onBack?: () => void
   onClose?: () => void
 }
 
-export function ScreenHeader({ title, backTo, onClose }: ScreenHeaderProps) {
+export function ScreenHeader({ title, backTo, onBack, onClose }: ScreenHeaderProps) {
   const navigate = useNavigate()
+
+  const handleBack = () => {
+    if (onBack) onBack()
+    else if (backTo) void navigate(backTo)
+  }
+
+  const showBack = backTo || onBack
 
   return (
     <header className="relative flex h-(--spacing-header) shrink-0 items-center justify-center px-4">
-      {backTo && (
+      {showBack && (
         <button
           className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full transition-colors hover:bg-white/10"
-          onClick={() => void navigate(backTo)}
+          onClick={handleBack}
           aria-label="Back"
         >
           <svg
