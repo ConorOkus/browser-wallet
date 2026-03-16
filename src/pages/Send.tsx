@@ -57,15 +57,15 @@ const MAX_DIGITS = 8
 const PAYMENT_POLL_MS = 1_000
 const MAX_POLL_DURATION_MS = 5 * 60 * 1_000
 
-function classifyEstimateError(err: unknown): { field: 'address' | 'amount'; message: string } {
+function classifyEstimateError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
   if (msg.includes('network') || msg.includes('different Bitcoin network')) {
-    return { field: 'address', message: 'This address is for a different Bitcoin network' }
+    return 'This address is for a different Bitcoin network'
   }
   if (msg.includes('Invalid') || msg.includes('address')) {
-    return { field: 'address', message: 'Invalid Bitcoin address' }
+    return 'Invalid Bitcoin address'
   }
-  return { field: 'amount', message: msg }
+  return msg
 }
 
 /** Convert millisatoshis to satoshis, rounding up. */
@@ -103,9 +103,9 @@ export function Send() {
   const [inputValue, setInputValue] = useState('')
   const [amountDigits, setAmountDigits] = useState('')
   const [inputError, setInputError] = useState<string | null>(null)
-  const [amountError, setAmountError] = useState<string | null>(null)
   const [isSendMax, setIsSendMax] = useState(false)
   const sendingRef = useRef(false)
+  const processingRef = useRef(false)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const onchainBalance =
@@ -123,7 +123,6 @@ export function Send() {
 
   // --- Numpad handlers ---
   const handleNumpadKey = useCallback((key: NumpadKey) => {
-    setAmountError(null)
     setIsSendMax(false)
     setAmountDigits((prev) => {
       if (key === 'backspace') return prev.slice(0, -1)
@@ -142,24 +141,25 @@ export function Send() {
     if (unified.total <= 0n) return
     setAmountDigits(unified.total.toString())
     setIsSendMax(true)
-    setAmountError(null)
   }, [unified.total])
 
   // --- Amount screen: Next ---
   const handleAmountNext = useCallback(() => {
-    setAmountError(null)
     if (amountSats <= 0n) return
     setSendStep({ step: 'recipient' })
   }, [amountSats])
 
   // --- Recipient: process input (shared by paste and Next button) ---
   const processRecipientInput = useCallback(async (value: string) => {
+    if (processingRef.current) return
     const trimmed = value.trim()
     if (!trimmed) {
       setInputError('Enter a payment request or address')
       return
     }
 
+    processingRef.current = true
+    try {
     const parsed = classifyPaymentInput(trimmed)
 
     if (parsed.type === 'error') {
@@ -199,7 +199,7 @@ export function Send() {
             isSendMax: true,
           })
         } catch (err) {
-          const { message } = classifyEstimateError(err)
+          const message = classifyEstimateError(err)
           setInputError(message)
         }
         return
@@ -222,7 +222,7 @@ export function Send() {
           isSendMax: false,
         })
       } catch (err) {
-        const { message } = classifyEstimateError(err)
+        const message = classifyEstimateError(err)
         setInputError(message)
       }
       return
@@ -230,20 +230,16 @@ export function Send() {
 
     // Lightning types (bolt11, bolt12, bip353)
     // Fixed-amount inputs use their own amount, discarding numpad amount
-    if ((parsed.type === 'bolt11' || parsed.type === 'bolt12') && parsed.amountMsat !== null) {
-      if (parsed.amountMsat > lnCapacityMsat) {
-        setInputError('Amount exceeds Lightning channel capacity')
-        return
-      }
-      setSendStep({ step: 'ln-review', parsed, amountMsat: parsed.amountMsat })
-    } else {
-      // Use numpad amount for zero-amount invoices/offers/bip353
-      const amountMsat = amountSats * 1000n
-      if (amountMsat > lnCapacityMsat) {
-        setInputError('Amount exceeds Lightning channel capacity')
-        return
-      }
-      setSendStep({ step: 'ln-review', parsed, amountMsat })
+    const effectiveMsat = (parsed.type !== 'bip353' && parsed.amountMsat !== null)
+      ? parsed.amountMsat
+      : amountSats * 1000n
+    if (effectiveMsat > lnCapacityMsat) {
+      setInputError('Amount exceeds Lightning channel capacity')
+      return
+    }
+    setSendStep({ step: 'ln-review', parsed, amountMsat: effectiveMsat })
+    } finally {
+      processingRef.current = false
     }
   }, [amountSats, isSendMax, onchain, onchainBalance, lnCapacityMsat])
 
@@ -491,8 +487,11 @@ export function Send() {
         <button
           className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
           onClick={() => {
-            // Preserve amountDigits and inputValue for retry
-            setSendStep({ step: 'recipient' })
+            if (sendStep.canRetry) {
+              setSendStep({ step: 'recipient' })
+            } else {
+              void navigate('/')
+            }
           }}
         >
           {sendStep.canRetry ? 'Try Again' : 'Done'}
@@ -689,7 +688,7 @@ export function Send() {
         >
           {formatBtc(amountSats)}
         </div>
-        {amountError && <p className="mt-1 text-sm text-red-400">{amountError}</p>}
+
       </div>
       <Numpad
         onKey={handleNumpadKey}
