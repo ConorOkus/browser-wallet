@@ -372,7 +372,7 @@ export function LdkProvider({
     let cleanupEventHandlerFn: (() => void) | null = null
 
     initializeLdk(ldkSeed)
-      .then(({ node, watchState, cleanupEventHandler, setBdkWallet, setPaymentCallback, setChannelClosedCallback }) => {
+      .then(async ({ node, watchState, cleanupEventHandler, setBdkWallet, setPaymentCallback, setChannelClosedCallback }) => {
         if (cancelled) return
 
         nodeRef.current = node
