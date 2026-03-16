@@ -31,7 +31,6 @@ function createMockEsplora(tipHash = 'newtip'): EsploraClient {
     getTipHeight: vi.fn().mockResolvedValue(100),
     getBlockHeader: vi.fn().mockResolvedValue(new Uint8Array(80)),
     getBlockStatus: vi.fn().mockResolvedValue({ in_best_chain: true, height: 100 }),
-    getBlockHashAtHeight: vi.fn().mockResolvedValue('hash'),
     getTxStatus: vi.fn().mockResolvedValue({ confirmed: false }),
     getTxHex: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
     getTxMerkleProof: vi.fn().mockResolvedValue({ block_height: 100, merkle: [], pos: 0 }),

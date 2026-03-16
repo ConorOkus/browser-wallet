@@ -53,15 +53,6 @@ export class EsploraClient {
     return data as BlockStatus
   }
 
-  async getBlockHashAtHeight(height: number): Promise<string> {
-    const res = await fetch(`${this.baseUrl}/block-height/${height}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-    if (!res.ok)
-      throw new Error(`[Esplora] GET /block-height/${height} failed: ${res.status}`)
-    const hash = (await res.text()).trim()
-    assertHex(hash, 'blockHashAtHeight')
-    return hash
-  }
-
   async getTxStatus(txid: string): Promise<TxStatus> {
     assertHex(txid, 'txid')
     const res = await fetch(`${this.baseUrl}/tx/${txid}/status`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })

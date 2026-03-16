@@ -127,7 +127,7 @@ export async function syncOnce(
   return tipHash
 }
 
-export type SyncStatus = 'syncing' | 'synced' | 'stale'
+import type { SyncStatus } from '../ldk-context'
 
 export interface SyncLoopHandle {
   stop: () => void
