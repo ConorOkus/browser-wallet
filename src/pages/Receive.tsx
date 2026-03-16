@@ -25,20 +25,20 @@ export function Receive() {
     const getFocusable = () =>
       el.querySelectorAll<HTMLElement>('button, a, input, [tabindex]')
     const focusable = getFocusable()
-    if (focusable.length > 0) focusable[0].focus()
+    if (focusable.length > 0) focusable[0]?.focus()
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return
       const items = getFocusable()
       if (items.length === 0) return
-      const first = items[0]
-      const last = items[items.length - 1]
-      if (e.shiftKey && document.activeElement === first) {
+      const first = items[0] as HTMLElement | undefined
+      const last = items[items.length - 1] as HTMLElement | undefined
+      if (e.shiftKey && first && document.activeElement === first) {
         e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && document.activeElement === last) {
+        last?.focus()
+      } else if (!e.shiftKey && last && document.activeElement === last) {
         e.preventDefault()
-        first.focus()
+        first?.focus()
       }
     }
     el.addEventListener('keydown', handleKeyDown)

@@ -25,7 +25,7 @@ export function Numpad({ onKey, onNext, nextDisabled }: NumpadProps) {
           <button
             key={key}
             className="flex h-16 select-none items-center justify-center rounded-xl font-display text-2xl font-semibold text-on-dark transition-colors active:bg-white/10"
-            onClick={() => onKey(key)}
+            onClick={() => onKey(key as NumpadKey)}
             aria-label={key}
           >
             {key}

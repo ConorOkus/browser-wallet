@@ -12,7 +12,7 @@ export function bytesToHex(bytes: Uint8Array): string {
 export function txidBytesToHex(bytes: Uint8Array): string {
   const reversed = new Uint8Array(bytes.length)
   for (let i = 0; i < bytes.length; i++) {
-    reversed[i] = bytes[bytes.length - 1 - i]
+    reversed[i] = bytes[bytes.length - 1 - i]!
   }
   return bytesToHex(reversed)
 }

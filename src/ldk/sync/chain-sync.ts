@@ -28,7 +28,7 @@ export async function syncOnce(
     for (const tuple of relevantTxids) {
       const txid = tuple.get_a()
       const blockHashOpt = tuple.get_c()
-      if (blockHashOpt && blockHashOpt.length > 0) {
+      if (blockHashOpt && blockHashOpt instanceof Uint8Array && blockHashOpt.length > 0) {
         const blockHashHex = txidBytesToHex(blockHashOpt)
         const status = await esplora.getBlockStatus(blockHashHex)
         if (!status.in_best_chain) {

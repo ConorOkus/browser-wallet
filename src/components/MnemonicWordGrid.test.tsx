@@ -22,7 +22,7 @@ describe('MnemonicWordGrid', () => {
     render(<MnemonicWordGrid words={TEST_WORDS} />)
     for (let i = 0; i < TEST_WORDS.length; i++) {
       expect(screen.getByText(`${i + 1}.`)).toBeInTheDocument()
-      expect(screen.getByText(TEST_WORDS[i])).toBeInTheDocument()
+      expect(screen.getByText(TEST_WORDS[i]!)).toBeInTheDocument()
     }
   })
 

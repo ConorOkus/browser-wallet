@@ -8,7 +8,6 @@ import {
   Amount_Bitcoin,
   Result_Bolt11InvoiceParseOrSemanticErrorZ_OK,
   Result_OfferBolt12ParseErrorZ_OK,
-  Result_HumanReadableNameNoneZ_OK,
 } from 'lightningdevkit'
 
 export type ParsedPaymentInput =
@@ -127,7 +126,7 @@ function parseBolt12Offer(raw: string): ParsedPaymentInput {
   return { type: 'bolt12', offer, raw, amountMsat, description }
 }
 
-function parseBip353(raw: string): ParsedPaymentInput {
+function parseBip353(_raw: string): ParsedPaymentInput {
   // BIP 353 requires bLIP 32 DNS resolver nodes which are not yet available on signet.
   // Disable until resolvers are configured to avoid confusing timeout failures.
   return { type: 'error', message: 'BIP 353 addresses (user@domain) are not yet supported on this network' }
@@ -148,7 +147,7 @@ function parseBip353(raw: string): ParsedPaymentInput {
 function parseBip321(input: string): ParsedPaymentInput {
   const withoutScheme = input.slice('bitcoin:'.length)
   const [addressPart, queryPart] = withoutScheme.split('?', 2)
-  const address = addressPart.trim()
+  const address = addressPart?.trim() ?? ''
 
   if (!queryPart && !address) {
     return { type: 'error', message: 'Empty Bitcoin URI' }
@@ -199,7 +198,9 @@ function parseBip321(input: string): ParsedPaymentInput {
 function btcStringToSats(btcStr: string): bigint | null {
   const trimmed = btcStr.trim()
   if (!/^\d+(\.\d+)?$/.test(trimmed)) return null
-  const [whole, frac = ''] = trimmed.split('.')
+  const parts = trimmed.split('.')
+  const whole = parts[0] ?? '0'
+  const frac = parts[1] ?? ''
   const padded = (frac + '00000000').slice(0, 8)
   return BigInt(whole) * 100_000_000n + BigInt(padded)
 }

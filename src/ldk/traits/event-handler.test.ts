@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockClaimFunds = vi.fn()
 const mockProcessPendingHtlcForwards = vi.fn()
-const mockFundingTransactionGenerated = vi.fn(() => ({ is_ok: () => true }))
+const mockFundingTransactionGenerated = vi.fn((): { is_ok: () => boolean } => ({ is_ok: () => true }))
 const mockListChannels = vi.fn((): unknown[] => [])
 const mockOnChannelClosed = vi.fn()
 
@@ -170,18 +170,18 @@ vi.mock('lightningdevkit', () => {
   }
 })
 
-const mockIdbGet = vi.fn(() => Promise.resolve(undefined))
+const mockIdbGet = vi.fn((): Promise<string | undefined> => Promise.resolve(undefined))
 vi.mock('../storage/idb', () => ({
   idbPut: vi.fn(() => Promise.resolve()),
-  idbGet: (...args: unknown[]) => mockIdbGet(...args),
+  idbGet: () => mockIdbGet(),
   idbDelete: vi.fn(() => Promise.resolve()),
 }))
 
-const mockExtractTxBytes = vi.fn(() => new Uint8Array([0xde, 0xad]))
-const mockBroadcastTransaction = vi.fn(() => Promise.resolve('txid123'))
+const mockExtractTxBytes = vi.fn((_psbt: string) => new Uint8Array([0xde, 0xad]))
+const mockBroadcastTransaction = vi.fn((_txHex: string, _url: string) => Promise.resolve('txid123'))
 vi.mock('../../onchain/tx-bridge', () => ({
-  extractTxBytes: (...args: unknown[]) => mockExtractTxBytes(...args),
-  broadcastTransaction: (...args: unknown[]) => mockBroadcastTransaction(...args),
+  extractTxBytes: (psbt: string) => mockExtractTxBytes(psbt),
+  broadcastTransaction: (txHex: string, url: string) => mockBroadcastTransaction(txHex, url),
 }))
 
 vi.mock('../../onchain/config', () => ({
@@ -231,7 +231,9 @@ vi.mock('../utils', () => ({
 
 import { createEventHandler } from './event-handler'
 import { idbPut } from '../storage/idb'
-import {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ldk: any = await import('lightningdevkit')
+const {
   Event_PaymentClaimable,
   Event_PaymentClaimed,
   Event_PaymentSent,
@@ -248,7 +250,7 @@ import {
   Event_OpenChannelRequest,
   Event_DiscardFunding,
   Option_ThirtyTwoBytesZ_None,
-} from 'lightningdevkit'
+} = ldk
 
 function createMockKeysManager() {
   return {

@@ -15,7 +15,8 @@ vi.mock('../storage/idb', () => ({
   idbPut: vi.fn().mockResolvedValue(undefined),
 }))
 
-function createMockConfirmable() {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function createMockConfirmable(): any {
   return {
     get_relevant_txids: vi.fn().mockReturnValue([]),
     transaction_unconfirmed: vi.fn(),

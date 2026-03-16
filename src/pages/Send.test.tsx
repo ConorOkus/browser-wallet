@@ -39,6 +39,9 @@ function renderSend(onchainValue?: OnchainContextValue, ldkValue?: LdkContextVal
     sendBolt11Payment: vi.fn(),
     sendBolt12Payment: vi.fn(),
     sendBip353Payment: vi.fn(),
+    closeChannel: vi.fn(),
+    forceCloseChannel: vi.fn(),
+    listChannels: vi.fn(() => []),
     abandonPayment: vi.fn(),
     getPaymentResult: vi.fn(() => null),
     listRecentPayments: vi.fn(() => []),
@@ -143,7 +146,7 @@ describe('Send', () => {
       await goToAmountScreen(user)
 
       const nextBtns = screen.getAllByRole('button', { name: /next/i })
-      const numpadNext = nextBtns[nextBtns.length - 1]
+      const numpadNext = nextBtns[nextBtns.length - 1]!
       expect(numpadNext).toBeDisabled()
     })
 
@@ -166,7 +169,7 @@ describe('Send', () => {
 
       await typeOnNumpad(user, '10000')
       const nextBtns = screen.getAllByRole('button', { name: /next/i })
-      await user.click(nextBtns[nextBtns.length - 1])
+      await user.click(nextBtns[nextBtns.length - 1]!)
 
       await waitFor(() => {
         expect(screen.getByText(/review/i)).toBeInTheDocument()
@@ -183,7 +186,7 @@ describe('Send', () => {
 
       await typeOnNumpad(user, '10000')
       const nextBtns = screen.getAllByRole('button', { name: /next/i })
-      await user.click(nextBtns[nextBtns.length - 1])
+      await user.click(nextBtns[nextBtns.length - 1]!)
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument()
@@ -200,7 +203,7 @@ describe('Send', () => {
 
       await typeOnNumpad(user, '10000')
       const nextBtns = screen.getAllByRole('button', { name: /next/i })
-      await user.click(nextBtns[nextBtns.length - 1])
+      await user.click(nextBtns[nextBtns.length - 1]!)
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
@@ -223,7 +226,7 @@ describe('Send', () => {
 
       await typeOnNumpad(user, '10000')
       const nextBtns = screen.getAllByRole('button', { name: /next/i })
-      await user.click(nextBtns[nextBtns.length - 1])
+      await user.click(nextBtns[nextBtns.length - 1]!)
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
@@ -245,7 +248,7 @@ describe('Send', () => {
 
       await typeOnNumpad(user, '100')
       const nextBtns = screen.getAllByRole('button', { name: /next/i })
-      await user.click(nextBtns[nextBtns.length - 1])
+      await user.click(nextBtns[nextBtns.length - 1]!)
 
       await waitFor(() => {
         expect(screen.getByText(/at least 294 sats/i)).toBeInTheDocument()

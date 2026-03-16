@@ -7,7 +7,9 @@ export interface Bip21ParseResult {
 function btcStringToSats(btcStr: string): bigint | null {
   const trimmed = btcStr.trim()
   if (!/^\d+(\.\d+)?$/.test(trimmed)) return null
-  const [whole, frac = ''] = trimmed.split('.')
+  const parts = trimmed.split('.')
+  const whole = parts[0] ?? '0'
+  const frac = parts[1] ?? ''
   const padded = (frac + '00000000').slice(0, 8)
   return BigInt(whole) * 100_000_000n + BigInt(padded)
 }
@@ -17,11 +19,12 @@ export function parseBip21(input: string): Bip21ParseResult | null {
 
   // BIP21: bitcoin:<address>?amount=<btc>&label=...
   const withoutScheme = input.slice('bitcoin:'.length)
-  const [addressPart, queryPart] = withoutScheme.split('?', 2)
-  const address = addressPart.trim()
+  const parts = withoutScheme.split('?', 2)
+  const address = (parts[0] ?? '').trim()
   if (!address) return null
 
   let amountSats: bigint | undefined
+  const queryPart = parts[1]
   if (queryPart) {
     const params = new URLSearchParams(queryPart)
     const amountBtc = params.get('amount')

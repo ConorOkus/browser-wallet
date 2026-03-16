@@ -9,7 +9,8 @@ export async function getSeed(): Promise<Uint8Array | undefined> {
   if (raw instanceof Uint8Array) return raw
   // Handle cross-realm typed arrays (e.g., from IndexedDB structured clone)
   if (ArrayBuffer.isView(raw)) {
-    return new Uint8Array(new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength))
+    const view = raw as unknown as { buffer: ArrayBuffer; byteOffset: number; byteLength: number }
+    return new Uint8Array(new Uint8Array(view.buffer, view.byteOffset, view.byteLength))
   }
   throw new Error('[Seed] Stored seed is not a Uint8Array — possible data corruption')
 }

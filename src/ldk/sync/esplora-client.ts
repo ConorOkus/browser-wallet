@@ -2,7 +2,10 @@ import { hexToBytes } from '../utils'
 import type { BlockStatus, TxStatus, MerkleProof, OutspendStatus } from './types'
 
 export class EsploraClient {
-  constructor(private baseUrl: string) {}
+  baseUrl: string
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl
+  }
 
   async getTipHash(): Promise<string> {
     const res = await fetch(`${this.baseUrl}/blocks/tip/hash`)
