@@ -47,8 +47,16 @@ export function createBdkSignerProvider(keysManager: KeysManager): {
   }
 
   const impl: SignerProviderInterface = {
-    generate_channel_keys_id(inbound: boolean, channel_value_satoshis: bigint, user_channel_id: bigint): Uint8Array {
-      return defaultProvider.generate_channel_keys_id(inbound, channel_value_satoshis, user_channel_id)
+    generate_channel_keys_id(_inbound: boolean, _channel_value_satoshis: bigint, _user_channel_id: bigint): Uint8Array {
+      // Generate a random 32-byte channel keys ID directly instead of
+      // delegating to defaultProvider.generate_channel_keys_id(), which
+      // re-encodes user_channel_id via encodeUint128. The LDK WASM bindings
+      // have an asymmetry: decodeUint128 reads full 128-bit values but
+      // encodeUint128 rejects values >= 2^124, causing failures when the
+      // user_channel_id has high bits set.
+      const channelKeysId = new Uint8Array(32)
+      crypto.getRandomValues(channelKeysId)
+      return channelKeysId
     },
 
     derive_channel_signer(channel_value_satoshis: bigint, channel_keys_id: Uint8Array) {
