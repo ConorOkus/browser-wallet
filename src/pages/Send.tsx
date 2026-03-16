@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
+import { useUnifiedBalance } from '../hooks/use-unified-balance'
 import { classifyPaymentInput, type ParsedPaymentInput } from '../ldk/payment-input'
 import { ONCHAIN_CONFIG } from '../onchain/config'
 import { formatBtc } from '../utils/format-btc'
@@ -19,10 +20,11 @@ import {
 // --- State machine ---
 
 type SendStep =
-  // Shared entry
-  | { step: 'input' }
+  // Amount entry (first screen)
+  | { step: 'amount' }
+  // Recipient entry (second screen)
+  | { step: 'recipient' }
   // On-chain flow
-  | { step: 'oc-amount'; address: string }
   | {
       step: 'oc-review'
       address: string
@@ -34,7 +36,6 @@ type SendStep =
   | { step: 'oc-broadcasting' }
   | { step: 'oc-success'; txid: string; amount: bigint }
   // Lightning flow
-  | { step: 'ln-amount'; parsed: ParsedPaymentInput & { type: 'bolt11' | 'bolt12' | 'bip353' } }
   | {
       step: 'ln-review'
       parsed: ParsedPaymentInput & { type: 'bolt11' | 'bolt12' | 'bip353' }
@@ -56,15 +57,15 @@ const MAX_DIGITS = 8
 const PAYMENT_POLL_MS = 1_000
 const MAX_POLL_DURATION_MS = 5 * 60 * 1_000
 
-function classifyEstimateError(err: unknown): { field: 'address' | 'amount'; message: string } {
+function classifyEstimateError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
   if (msg.includes('network') || msg.includes('different Bitcoin network')) {
-    return { field: 'address', message: 'This address is for a different Bitcoin network' }
+    return 'This address is for a different Bitcoin network'
   }
   if (msg.includes('Invalid') || msg.includes('address')) {
-    return { field: 'address', message: 'Invalid Bitcoin address' }
+    return 'Invalid Bitcoin address'
   }
-  return { field: 'amount', message: msg }
+  return msg
 }
 
 /** Convert millisatoshis to satoshis, rounding up. */
@@ -97,12 +98,14 @@ export function Send() {
   const navigate = useNavigate()
   const onchain = useOnchain()
   const ldk = useLdk()
-  const [sendStep, setSendStep] = useState<SendStep>({ step: 'input' })
+  const unified = useUnifiedBalance()
+  const [sendStep, setSendStep] = useState<SendStep>({ step: 'amount' })
   const [inputValue, setInputValue] = useState('')
   const [amountDigits, setAmountDigits] = useState('')
   const [inputError, setInputError] = useState<string | null>(null)
-  const [amountError, setAmountError] = useState<string | null>(null)
+  const [isSendMax, setIsSendMax] = useState(false)
   const sendingRef = useRef(false)
+  const processingRef = useRef(false)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const onchainBalance =
@@ -120,7 +123,7 @@ export function Send() {
 
   // --- Numpad handlers ---
   const handleNumpadKey = useCallback((key: NumpadKey) => {
-    setAmountError(null)
+    setIsSendMax(false)
     setAmountDigits((prev) => {
       if (key === 'backspace') return prev.slice(0, -1)
       if (prev.length >= MAX_DIGITS) return prev
@@ -133,58 +136,30 @@ export function Send() {
 
   const amountSats = amountDigits ? BigInt(amountDigits) : 0n
 
-  // --- Input classification on paste ---
-  const handlePaste = useCallback(
-    (e: React.ClipboardEvent<HTMLInputElement>) => {
-      const pasted = e.clipboardData.getData('text')
-      if (!pasted.trim()) return
+  // --- Amount screen: Send max approximation ---
+  const handleApproxSendMax = useCallback(() => {
+    if (unified.total <= 0n) return
+    setAmountDigits(unified.total.toString())
+    setIsSendMax(true)
+  }, [unified.total])
 
-      e.preventDefault()
-      const parsed = classifyPaymentInput(pasted)
+  // --- Amount screen: Next ---
+  const handleAmountNext = useCallback(() => {
+    if (amountSats <= 0n) return
+    setSendStep({ step: 'recipient' })
+  }, [amountSats])
 
-      if (parsed.type === 'error') {
-        setInputValue(pasted)
-        setInputError(parsed.message)
-        return
-      }
-
-      if (parsed.type === 'onchain') {
-        setInputValue(parsed.address)
-        if (parsed.amountSats) {
-          setAmountDigits(parsed.amountSats.toString())
-        }
-        setInputError(null)
-        setSendStep({ step: 'oc-amount', address: parsed.address })
-        return
-      }
-
-      // Lightning types
-      setInputValue(pasted)
-      setInputError(null)
-
-      if ((parsed.type === 'bolt11' || parsed.type === 'bolt12') && parsed.amountMsat !== null) {
-        // Fixed-amount invoice — check capacity before review
-        if (parsed.amountMsat > lnCapacityMsat) {
-          setInputError('Amount exceeds Lightning channel capacity')
-          return
-        }
-        setSendStep({ step: 'ln-review', parsed, amountMsat: parsed.amountMsat })
-      } else {
-        // Needs amount input
-        setSendStep({ step: 'ln-amount', parsed })
-      }
-    },
-    [lnCapacityMsat],
-  )
-
-  // --- Input next button (manual entry) ---
-  const handleInputNext = useCallback(() => {
-    const trimmed = inputValue.trim()
+  // --- Recipient: process input (shared by paste and Next button) ---
+  const processRecipientInput = useCallback(async (value: string) => {
+    if (processingRef.current) return
+    const trimmed = value.trim()
     if (!trimmed) {
-      setInputError('Paste an invoice, offer, or address')
+      setInputError('Enter a payment request or address')
       return
     }
 
+    processingRef.current = true
+    try {
     const parsed = classifyPaymentInput(trimmed)
 
     if (parsed.type === 'error') {
@@ -192,89 +167,99 @@ export function Send() {
       return
     }
 
-    if (parsed.type === 'onchain') {
-      setInputError(null)
-      setSendStep({ step: 'oc-amount', address: parsed.address })
-      return
-    }
-
     setInputError(null)
 
-    if ((parsed.type === 'bolt11' || parsed.type === 'bolt12') && parsed.amountMsat !== null) {
-      if (parsed.amountMsat > lnCapacityMsat) {
-        setInputError('Amount exceeds Lightning channel capacity')
+    if (parsed.type === 'onchain') {
+      // Use parsed amount if present (BIP 321 URI with ?amount=), otherwise use numpad amount
+      const effectiveAmount = parsed.amountSats ?? amountSats
+      const effectiveIsSendMax = parsed.amountSats ? false : isSendMax
+
+      // Phase 2 validation: dust limit
+      if (effectiveAmount < MIN_DUST_SATS) {
+        setInputError('Amount must be at least 294 sats (dust limit)')
         return
       }
-      setSendStep({ step: 'ln-review', parsed, amountMsat: parsed.amountMsat })
-    } else {
-      setSendStep({ step: 'ln-amount', parsed })
-    }
-  }, [inputValue, lnCapacityMsat])
 
-  // --- On-chain: Send max ---
-  const handleSendMax = useCallback(async () => {
-    if (onchain.status !== 'ready' || sendStep.step !== 'oc-amount') return
-    setAmountError(null)
-    try {
-      const estimate = await onchain.estimateMaxSendable(sendStep.address)
-      if (estimate.amount <= 0n) {
-        setAmountError('Balance too low to cover fees')
+      if (onchain.status !== 'ready') return
+
+      // Send max: recalculate exact amount with fee
+      if (effectiveIsSendMax) {
+        try {
+          const estimate = await onchain.estimateMaxSendable(parsed.address)
+          if (estimate.amount <= 0n) {
+            setInputError('Balance too low to cover fees')
+            return
+          }
+          setSendStep({
+            step: 'oc-review',
+            address: parsed.address,
+            amount: estimate.amount,
+            fee: estimate.fee,
+            feeRate: estimate.feeRate,
+            isSendMax: true,
+          })
+        } catch (err) {
+          const message = classifyEstimateError(err)
+          setInputError(message)
+        }
         return
       }
-      setSendStep({
-        step: 'oc-review',
-        address: sendStep.address,
-        amount: estimate.amount,
-        fee: estimate.fee,
-        feeRate: estimate.feeRate,
-        isSendMax: true,
-      })
-    } catch (err) {
-      const { field, message } = classifyEstimateError(err)
-      if (field === 'address') {
-        setInputError(message)
-        setSendStep({ step: 'input' })
-      } else {
-        setAmountError(message)
+
+      // Validate against on-chain balance
+      if (effectiveAmount > onchainBalance) {
+        setInputError('Amount exceeds available on-chain balance')
+        return
       }
-    }
-  }, [onchain, sendStep])
 
-  // --- On-chain: Amount next ---
-  const handleOcAmountNext = useCallback(async () => {
-    if (onchain.status !== 'ready' || sendStep.step !== 'oc-amount') return
-    setAmountError(null)
-
-    if (amountSats <= 0n) return
-    if (amountSats < MIN_DUST_SATS) {
-      setAmountError('Amount must be at least 294 sats')
-      return
-    }
-    if (amountSats > onchainBalance) {
-      setAmountError('Amount exceeds available balance')
+      try {
+        const estimate = await onchain.estimateFee(parsed.address, effectiveAmount)
+        setSendStep({
+          step: 'oc-review',
+          address: parsed.address,
+          amount: effectiveAmount,
+          fee: estimate.fee,
+          feeRate: estimate.feeRate,
+          isSendMax: false,
+        })
+      } catch (err) {
+        const message = classifyEstimateError(err)
+        setInputError(message)
+      }
       return
     }
 
-    try {
-      const estimate = await onchain.estimateFee(sendStep.address, amountSats)
-      setSendStep({
-        step: 'oc-review',
-        address: sendStep.address,
-        amount: amountSats,
-        fee: estimate.fee,
-        feeRate: estimate.feeRate,
-        isSendMax: false,
-      })
-    } catch (err) {
-      const { field, message } = classifyEstimateError(err)
-      if (field === 'address') {
-        setInputError(message)
-        setSendStep({ step: 'input' })
-      } else {
-        setAmountError(message)
-      }
+    // Lightning types (bolt11, bolt12, bip353)
+    // Fixed-amount inputs use their own amount, discarding numpad amount
+    const effectiveMsat = (parsed.type !== 'bip353' && parsed.amountMsat !== null)
+      ? parsed.amountMsat
+      : amountSats * 1000n
+    if (effectiveMsat > lnCapacityMsat) {
+      setInputError('Amount exceeds Lightning channel capacity')
+      return
     }
-  }, [onchain, amountSats, onchainBalance, sendStep])
+    setSendStep({ step: 'ln-review', parsed, amountMsat: effectiveMsat })
+    } finally {
+      processingRef.current = false
+    }
+  }, [amountSats, isSendMax, onchain, onchainBalance, lnCapacityMsat])
+
+  // --- Recipient: paste handler ---
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLInputElement>) => {
+      const pasted = e.clipboardData.getData('text')
+      if (!pasted.trim()) return
+
+      e.preventDefault()
+      setInputValue(pasted)
+      void processRecipientInput(pasted)
+    },
+    [processRecipientInput],
+  )
+
+  // --- Recipient: Next button ---
+  const handleRecipientNext = useCallback(() => {
+    void processRecipientInput(inputValue)
+  }, [inputValue, processRecipientInput])
 
   // --- On-chain: Confirm send ---
   const handleOcConfirm = useCallback(async () => {
@@ -297,23 +282,6 @@ export function Send() {
       sendingRef.current = false
     }
   }, [onchain, sendStep])
-
-  // --- Lightning: Amount next ---
-  const handleLnAmountNext = useCallback(() => {
-    if (sendStep.step !== 'ln-amount') return
-    setAmountError(null)
-
-    if (amountSats <= 0n) return
-
-    const amountMsat = amountSats * 1000n
-
-    if (amountMsat > lnCapacityMsat) {
-      setAmountError('Amount exceeds Lightning channel capacity')
-      return
-    }
-
-    setSendStep({ step: 'ln-review', parsed: sendStep.parsed, amountMsat })
-  }, [sendStep, amountSats, lnCapacityMsat])
 
   // --- Lightning: Confirm send ---
   const handleLnConfirm = useCallback(() => {
@@ -519,8 +487,11 @@ export function Send() {
         <button
           className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
           onClick={() => {
-            setAmountDigits('')
-            setSendStep({ step: 'input' })
+            if (sendStep.canRetry) {
+              setSendStep({ step: 'recipient' })
+            } else {
+              void navigate('/')
+            }
           }}
         >
           {sendStep.canRetry ? 'Try Again' : 'Done'}
@@ -580,7 +551,7 @@ export function Send() {
     const total = sendStep.amount + sendStep.fee
     return (
       <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
-        <ScreenHeader title="Review" onBack={() => setSendStep({ step: 'oc-amount', address: sendStep.address })} />
+        <ScreenHeader title="Review" onBack={() => setSendStep({ step: 'recipient' })} />
         <div className="flex flex-1 flex-col gap-6 px-6 pt-8">
           <div className="flex justify-between">
             <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">To</span>
@@ -623,14 +594,7 @@ export function Send() {
       <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
         <ScreenHeader
           title="Review"
-          onBack={() => {
-            if ((parsed.type === 'bolt11' || parsed.type === 'bolt12') && parsed.amountMsat !== null) {
-              setSendStep({ step: 'input' })
-            } else {
-              setAmountDigits(msatToSat(amountMsat).toString())
-              setSendStep({ step: 'ln-amount', parsed })
-            }
-          }}
+          onBack={() => setSendStep({ step: 'recipient' })}
         />
         <div className="flex flex-1 flex-col gap-6 px-6 pt-8">
           <div className="flex justify-between">
@@ -662,107 +626,75 @@ export function Send() {
     )
   }
 
-  // --- On-chain amount (numpad) ---
-  if (sendStep.step === 'oc-amount') {
+  // --- Recipient screen (second step) ---
+  if (sendStep.step === 'recipient') {
     return (
-      <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
-        <ScreenHeader title="Send" onBack={() => setSendStep({ step: 'input' })} />
-        <div className="flex flex-1 flex-col items-center justify-center gap-2">
+      <div className="flex min-h-dvh flex-col bg-dark text-on-dark">
+        <ScreenHeader title="Send" onBack={() => setSendStep({ step: 'amount' })} />
+        <div className="flex flex-1 flex-col gap-5 px-6 pt-6">
+          <div className="flex flex-col gap-2">
+            <label
+              htmlFor="send-input"
+              className="text-sm font-medium text-[var(--color-on-dark-muted)]"
+            >
+              Recipient
+            </label>
+            <input
+              id="send-input"
+              type="text"
+              value={inputValue}
+              onChange={(e) => {
+                setInputValue(e.target.value)
+                setInputError(null)
+              }}
+              onPaste={handlePaste}
+              placeholder="payment request or user@domain"
+              maxLength={2000}
+              className="w-full rounded-xl border border-dark-border bg-dark-elevated px-4 py-3 font-mono text-sm text-on-dark placeholder:text-[var(--color-on-dark-muted)] focus:outline-none focus:ring-2 focus:ring-accent"
+            />
+            {inputError && <p className="text-sm text-red-400">{inputError}</p>}
+          </div>
+        </div>
+        <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
           <button
-            className="text-sm text-[var(--color-on-dark-muted)] transition-colors hover:text-on-dark"
-            onClick={() => void handleSendMax()}
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-white font-display text-lg font-bold uppercase tracking-wider text-dark transition-transform disabled:cursor-not-allowed disabled:opacity-30 active:scale-[0.98]"
+            onClick={handleRecipientNext}
+            disabled={!inputValue.trim()}
           >
-            {formatBtc(onchainBalance)} available
+            Next
+            <ArrowRight className="h-5 w-5" />
           </button>
-          <div
-            className={`font-display font-bold leading-none tracking-tight ${
-              amountDigits.length > 5 ? 'text-5xl' : 'text-7xl'
-            }`}
-            aria-live="polite"
-          >
-            {formatBtc(amountSats)}
-          </div>
-          {amountError && <p className="mt-1 text-sm text-red-400">{amountError}</p>}
         </div>
-        <Numpad
-          onKey={handleNumpadKey}
-          onNext={() => void handleOcAmountNext()}
-          nextDisabled={amountSats <= 0n}
-        />
       </div>
     )
   }
 
-  // --- Lightning amount (numpad) ---
-  if (sendStep.step === 'ln-amount') {
-    const capacitySats = msatToSat(lnCapacityMsat)
-    return (
-      <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
-        <ScreenHeader title="Send" onBack={() => setSendStep({ step: 'input' })} />
-        <div className="flex flex-1 flex-col items-center justify-center gap-2">
-          <div className="text-sm text-[var(--color-on-dark-muted)]">
-            {formatBtc(capacitySats)} available
-          </div>
-          <div
-            className={`font-display font-bold leading-none tracking-tight ${
-              amountDigits.length > 5 ? 'text-5xl' : 'text-7xl'
-            }`}
-            aria-live="polite"
-          >
-            {formatBtc(amountSats)}
-          </div>
-          {amountError && <p className="mt-1 text-sm text-red-400">{amountError}</p>}
-          <div className="mt-1 rounded-full bg-accent/20 px-3 py-0.5 text-xs font-semibold text-accent">
-            {typeBadge(sendStep.parsed)}
-          </div>
-        </div>
-        <Numpad
-          onKey={handleNumpadKey}
-          onNext={handleLnAmountNext}
-          nextDisabled={amountSats <= 0n}
-        />
-      </div>
-    )
-  }
-
-  // --- Input screen (unified entry point) ---
+  // --- Amount screen (first step, default) ---
   return (
-    <div className="flex min-h-dvh flex-col bg-dark text-on-dark">
+    <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
       <ScreenHeader title="Send" backTo="/" />
-      <div className="flex flex-1 flex-col gap-5 px-6 pt-6">
-        <div className="flex flex-col gap-2">
-          <label
-            htmlFor="send-input"
-            className="text-sm font-medium text-[var(--color-on-dark-muted)]"
-          >
-            Recipient
-          </label>
-          <input
-            id="send-input"
-            type="text"
-            value={inputValue}
-            onChange={(e) => {
-              setInputValue(e.target.value)
-              setInputError(null)
-            }}
-            onPaste={handlePaste}
-            placeholder="Invoice, offer, address, or user@domain"
-            maxLength={2000}
-            className="w-full rounded-xl border border-dark-border bg-dark-elevated px-4 py-3 font-mono text-sm text-on-dark placeholder:text-[var(--color-on-dark-muted)] focus:outline-none focus:ring-2 focus:ring-accent"
-          />
-          {inputError && <p className="text-sm text-red-400">{inputError}</p>}
-        </div>
-      </div>
-      <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
+      <div className="flex flex-1 flex-col items-center justify-center gap-2">
         <button
-          className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-white font-display text-lg font-bold uppercase tracking-wider text-dark transition-transform disabled:cursor-not-allowed disabled:opacity-30 active:scale-[0.98]"
-          onClick={handleInputNext}
-          disabled={!inputValue.trim()}
+          className="text-sm text-[var(--color-on-dark-muted)] transition-colors hover:text-on-dark"
+          onClick={handleApproxSendMax}
         >
-          Next
-          <ArrowRight className="h-5 w-5" />
+          {formatBtc(unified.total)} available
         </button>
+        <div
+          className={`font-display font-bold leading-none tracking-tight ${
+            amountDigits.length > 5 ? 'text-5xl' : 'text-7xl'
+          }`}
+          aria-live="polite"
+        >
+          {formatBtc(amountSats)}
+        </div>
+
       </div>
+      <Numpad
+        onKey={handleNumpadKey}
+        onNext={handleAmountNext}
+        nextDisabled={amountSats <= 0n}
+      />
     </div>
   )
 }
