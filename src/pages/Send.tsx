@@ -54,6 +54,7 @@ const MIN_DUST_SATS = 294n
 const TXID_RE = /^[0-9a-f]{64}$/i
 const MAX_DIGITS = 8
 const PAYMENT_POLL_MS = 1_000
+const MAX_POLL_DURATION_MS = 5 * 60 * 1_000
 
 function classifyEstimateError(err: unknown): { field: 'address' | 'amount'; message: string } {
   const msg = err instanceof Error ? err.message : String(err)
@@ -341,51 +342,54 @@ export function Send() {
 
       setSendStep({ step: 'ln-sending', parsed, amountMsat, paymentId })
 
-      // Start polling for payment result
-      pollTimerRef.current = setInterval(() => {
-        // Check event-based result first
-        const result = ldk.getPaymentResult(paymentId)
-        if (result && result.status === 'sent') {
-          clearInterval(pollTimerRef.current!)
+      // Start polling for payment result with timeout
+      const startTime = Date.now()
+      const intervalId = setInterval(() => {
+        const stopPolling = () => {
+          clearInterval(intervalId)
           pollTimerRef.current = null
           sendingRef.current = false
+        }
+
+        // Timeout after 5 minutes
+        if (Date.now() - startTime > MAX_POLL_DURATION_MS) {
+          stopPolling()
+          setSendStep({ step: 'error', message: 'Payment timed out', canRetry: false })
+          return
+        }
+
+        // Check event-based result
+        const result = ldk.getPaymentResult(paymentId)
+        if (result && result.status === 'sent') {
+          stopPolling()
           setSendStep({ step: 'ln-success', preimage: result.preimage, amountMsat })
           return
         }
         if (result && result.status === 'failed') {
-          clearInterval(pollTimerRef.current!)
-          pollTimerRef.current = null
-          sendingRef.current = false
+          stopPolling()
           setSendStep({ step: 'error', message: result.reason, canRetry: false })
           return
         }
 
         // Also check list_recent_payments for BOLT 12 state transitions
-        const recent = ldk.listRecentPayments()
         const paymentIdHex = bytesToHex(paymentId)
+        const recent = ldk.listRecentPayments()
         for (const p of recent) {
           if (p instanceof RecentPaymentDetails_Fulfilled && bytesToHex(p.payment_id) === paymentIdHex) {
-            clearInterval(pollTimerRef.current!)
-            pollTimerRef.current = null
-            sendingRef.current = false
-            // Fulfilled but no preimage from events yet — show success anyway
+            stopPolling()
             const eventResult = ldk.getPaymentResult(paymentId)
-            if (eventResult?.status === 'sent') {
-              setSendStep({ step: 'ln-success', preimage: eventResult.preimage, amountMsat })
-            } else {
-              setSendStep({ step: 'ln-success', preimage: new Uint8Array(32), amountMsat })
-            }
+            const preimage = eventResult?.status === 'sent' ? eventResult.preimage : new Uint8Array(32)
+            setSendStep({ step: 'ln-success', preimage, amountMsat })
             return
           }
           if (p instanceof RecentPaymentDetails_Abandoned && bytesToHex(p.payment_id) === paymentIdHex) {
-            clearInterval(pollTimerRef.current!)
-            pollTimerRef.current = null
-            sendingRef.current = false
+            stopPolling()
             setSendStep({ step: 'error', message: 'Payment was abandoned', canRetry: false })
             return
           }
         }
       }, PAYMENT_POLL_MS)
+      pollTimerRef.current = intervalId
     } catch (err) {
       sendingRef.current = false
       const message = err instanceof Error ? err.message : String(err)

@@ -91,8 +91,18 @@ export function LdkProvider({
     await deleteKnownPeer(pubkey)
   }, [])
 
-  // Payment result store: tracks outcomes of in-flight payments
+  // Payment result store: tracks outcomes of in-flight payments.
+  // Bounded to 100 entries to prevent unbounded memory growth.
+  const MAX_PAYMENT_RESULTS = 100
   const paymentResultsRef = useRef(new Map<string, PaymentResult>())
+  const setPaymentResult = (key: string, value: PaymentResult) => {
+    const map = paymentResultsRef.current
+    if (map.size >= MAX_PAYMENT_RESULTS) {
+      const oldest = map.keys().next().value
+      if (oldest !== undefined) map.delete(oldest)
+    }
+    map.set(key, value)
+  }
 
   const sendBolt11Payment = useCallback(
     (invoice: Bolt11Invoice, amountMsat?: bigint): Uint8Array => {
@@ -100,11 +110,14 @@ export function LdkProvider({
       if (!node) throw new Error('Node not initialized')
 
       const hasAmount = invoice.amount_milli_satoshis() instanceof Option_u64Z_Some
+      if (!hasAmount && amountMsat == null) {
+        throw new Error('Amount is required for invoices without an embedded amount')
+      }
       const paramsResult = hasAmount
         ? UtilMethods.constructor_payment_parameters_from_invoice(invoice)
         : UtilMethods.constructor_payment_parameters_from_variable_amount_invoice(
             invoice,
-            amountMsat!,
+            amountMsat as bigint,
           )
 
       if (
@@ -133,7 +146,7 @@ export function LdkProvider({
         throw new Error('Payment routing failed — no route found or duplicate payment')
       }
 
-      paymentResultsRef.current.set(bytesToHex(paymentId), { status: 'pending' })
+      setPaymentResult(bytesToHex(paymentId), { status: 'pending' })
       return paymentId
     },
     [],
@@ -165,7 +178,7 @@ export function LdkProvider({
         throw new Error('Failed to initiate offer payment')
       }
 
-      paymentResultsRef.current.set(bytesToHex(paymentId), { status: 'pending' })
+      setPaymentResult(bytesToHex(paymentId), { status: 'pending' })
       return paymentId
     },
     [],
@@ -193,7 +206,7 @@ export function LdkProvider({
         throw new Error('Failed to initiate BIP 353 payment')
       }
 
-      paymentResultsRef.current.set(bytesToHex(paymentId), { status: 'pending' })
+      setPaymentResult(bytesToHex(paymentId), { status: 'pending' })
       return paymentId
     },
     [],
@@ -241,13 +254,13 @@ export function LdkProvider({
         // Wire payment event callback to update the result store
         setPaymentCallback((event) => {
           if (event.type === 'sent') {
-            paymentResultsRef.current.set(event.paymentHash, {
+            setPaymentResult(event.paymentHash, {
               status: 'sent',
               preimage: event.preimage,
               feePaidMsat: event.feePaidMsat,
             })
           } else {
-            paymentResultsRef.current.set(event.paymentHash, {
+            setPaymentResult(event.paymentHash, {
               status: 'failed',
               reason: event.reason,
             })

@@ -52,8 +52,12 @@ export function classifyPaymentInput(raw: string): ParsedPaymentInput {
     return parseBip353(input)
   }
 
-  // Fallback: treat as on-chain address
-  return { type: 'onchain', address: input, amountSats: null }
+  // Fallback: treat as on-chain address if it looks like one
+  if (/^(tb1|tpub|bcrt1|[mn2])[a-zA-Z0-9]+$/.test(input)) {
+    return { type: 'onchain', address: input, amountSats: null }
+  }
+
+  return { type: 'error', message: 'Unrecognized payment format' }
 }
 
 function parseBolt11(raw: string): ParsedPaymentInput {
@@ -124,13 +128,17 @@ function parseBolt12Offer(raw: string): ParsedPaymentInput {
 }
 
 function parseBip353(raw: string): ParsedPaymentInput {
-  // Strip ₿ prefix if present
-  const cleaned = raw.replace(/^\u20bf/, '')
-  const result = HumanReadableName.constructor_from_encoded(cleaned)
-  if (!(result instanceof Result_HumanReadableNameNoneZ_OK)) {
-    return { type: 'error', message: 'Invalid Bitcoin address format' }
-  }
-  return { type: 'bip353', name: result.res, raw: cleaned }
+  // BIP 353 requires bLIP 32 DNS resolver nodes which are not yet available on signet.
+  // Disable until resolvers are configured to avoid confusing timeout failures.
+  return { type: 'error', message: 'BIP 353 addresses (user@domain) are not yet supported on this network' }
+
+  // When bLIP 32 resolvers become available, uncomment:
+  // const cleaned = raw.replace(/^\u20bf/, '')
+  // const result = HumanReadableName.constructor_from_encoded(cleaned)
+  // if (!(result instanceof Result_HumanReadableNameNoneZ_OK)) {
+  //   return { type: 'error', message: 'Invalid Bitcoin address format' }
+  // }
+  // return { type: 'bip353', name: result.res, raw: cleaned }
 }
 
 /**
