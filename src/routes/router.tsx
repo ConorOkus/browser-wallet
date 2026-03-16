@@ -8,6 +8,7 @@ import { Activity } from '../pages/Activity'
 import { Advanced } from '../pages/Advanced'
 import { Peers } from '../pages/Peers'
 import { Backup } from '../pages/Backup'
+import { OpenChannel } from '../pages/OpenChannel'
 
 export const router = createBrowserRouter([
   {
@@ -22,6 +23,7 @@ export const router = createBrowserRouter([
       { path: 'settings/backup', element: <Backup /> },
       { path: 'settings/advanced', element: <Advanced /> },
       { path: 'settings/advanced/peers', element: <Peers /> },
+      { path: 'settings/advanced/open-channel', element: <OpenChannel /> },
     ],
   },
 ])
