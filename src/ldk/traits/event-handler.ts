@@ -16,6 +16,9 @@ import {
   Event_BumpTransaction,
   Event_DiscardFunding,
   Option_ThirtyTwoBytesZ_Some,
+  Option_u64Z_Some,
+  Option_PaymentFailureReasonZ_Some,
+  PaymentFailureReason,
   Result_NoneReplayEventZ,
   type ChannelManager,
   type Event,
@@ -35,7 +38,15 @@ import { ONCHAIN_CONFIG } from '../../onchain/config'
 
 const MAX_FORWARD_DELAY_MS = 10_000
 
-export function createEventHandler(channelManager: ChannelManager): {
+export type PaymentEventCallback = (event:
+  | { type: 'sent'; paymentHash: string; preimage: Uint8Array; feePaidMsat: bigint | null }
+  | { type: 'failed'; paymentHash: string; reason: string }
+) => void
+
+export function createEventHandler(
+  channelManager: ChannelManager,
+  onPaymentEvent?: PaymentEventCallback,
+): {
   handler: EventHandler
   cleanup: () => void
   setBdkWallet: (wallet: Wallet | null) => void
@@ -54,7 +65,7 @@ export function createEventHandler(channelManager: ChannelManager): {
         handleEvent(event, channelManager, bdkWallet, fundingTxCache, (id) => {
           if (forwardTimerId !== null) clearTimeout(forwardTimerId)
           forwardTimerId = id
-        })
+        }, onPaymentEvent)
       } catch (err: unknown) {
         console.error('[LDK Event] Unhandled error in event handler:', err)
       }
@@ -83,6 +94,7 @@ function handleEvent(
   bdkWallet: Wallet | null,
   fundingTxCache: Map<string, string>,
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
+  onPaymentEvent?: PaymentEventCallback,
 ): void {
   // Payment events
   if (event instanceof Event_PaymentClaimable) {
@@ -119,18 +131,34 @@ function handleEvent(
   }
 
   if (event instanceof Event_PaymentSent) {
-    console.log(
-      '[LDK Event] PaymentSent:',
-      bytesToHex(event.payment_hash),
-    )
+    const paymentHash = bytesToHex(event.payment_hash)
+    const paymentIdHex = event.payment_id instanceof Option_ThirtyTwoBytesZ_Some
+      ? bytesToHex(event.payment_id.some)
+      : paymentHash
+    const feePaid = event.fee_paid_msat
+    const feePaidMsat = feePaid instanceof Option_u64Z_Some ? feePaid.some : null
+    console.log('[LDK Event] PaymentSent:', paymentHash)
+    onPaymentEvent?.({
+      type: 'sent',
+      paymentHash: paymentIdHex,
+      preimage: event.payment_preimage,
+      feePaidMsat,
+    })
     return
   }
 
   if (event instanceof Event_PaymentFailed) {
-    console.warn(
-      '[LDK Event] PaymentFailed:',
-      bytesToHex(event.payment_hash),
-    )
+    const paymentIdHex = bytesToHex(event.payment_id)
+    const paymentHash = event.payment_hash instanceof Option_ThirtyTwoBytesZ_Some
+      ? bytesToHex(event.payment_hash.some)
+      : paymentIdHex
+    const reasonOpt = event.reason
+    let reason = 'Payment failed'
+    if (reasonOpt instanceof Option_PaymentFailureReasonZ_Some) {
+      reason = describePaymentFailure(reasonOpt.some)
+    }
+    console.warn('[LDK Event] PaymentFailed:', paymentHash, reason)
+    onPaymentEvent?.({ type: 'failed', paymentHash: paymentIdHex, reason })
     return
   }
 
@@ -326,4 +354,29 @@ function handleEvent(
 
   // Catch-all for unhandled event types (future LDK versions may add new events)
   console.log('[LDK Event] Unhandled event type:', event.constructor.name)
+}
+
+function describePaymentFailure(reason: PaymentFailureReason): string {
+  switch (reason) {
+    case PaymentFailureReason.LDKPaymentFailureReason_RecipientRejected:
+      return 'Payment was rejected by the recipient'
+    case PaymentFailureReason.LDKPaymentFailureReason_UserAbandoned:
+      return 'Payment was cancelled'
+    case PaymentFailureReason.LDKPaymentFailureReason_RetriesExhausted:
+      return 'No route found after multiple attempts'
+    case PaymentFailureReason.LDKPaymentFailureReason_PaymentExpired:
+      return 'Payment expired'
+    case PaymentFailureReason.LDKPaymentFailureReason_RouteNotFound:
+      return 'No route found to the recipient'
+    case PaymentFailureReason.LDKPaymentFailureReason_UnexpectedError:
+      return 'An unexpected error occurred'
+    case PaymentFailureReason.LDKPaymentFailureReason_UnknownRequiredFeatures:
+      return 'Recipient requires unsupported features'
+    case PaymentFailureReason.LDKPaymentFailureReason_InvoiceRequestExpired:
+      return 'Invoice request timed out — recipient may be offline'
+    case PaymentFailureReason.LDKPaymentFailureReason_InvoiceRequestRejected:
+      return 'Invoice request was rejected by the recipient'
+    default:
+      return 'Payment failed'
+  }
 }
