@@ -16,11 +16,14 @@ import {
   MultiThreadedLockableScore,
   DefaultRouter,
   DefaultMessageRouter,
+  OnionMessenger,
   UtilMethods,
   Result_C2Tuple_ThirtyTwoBytesChannelMonitorZDecodeErrorZ_OK,
   Result_C2Tuple_ThirtyTwoBytesChannelManagerZDecodeErrorZ_OK,
   Result_NetworkGraphDecodeErrorZ_OK,
   Result_ProbabilisticScorerDecodeErrorZ_OK,
+  P2PGossipSync,
+  Option_UtxoLookupZ,
   PeerManager,
   IgnoringMessageHandler,
   type Logger,
@@ -36,7 +39,7 @@ import { createFeeEstimator } from './traits/fee-estimator'
 import { createBroadcaster } from './traits/broadcaster'
 import { createPersister } from './traits/persist'
 import { createFilter, type WatchState } from './traits/filter'
-import { createEventHandler } from './traits/event-handler'
+import { createEventHandler, type PaymentEventCallback } from './traits/event-handler'
 import { SIGNET_CONFIG } from './config'
 import { idbGet, idbGetAll } from './storage/idb'
 import { bytesToHex, hexToBytes } from './utils'
@@ -54,6 +57,7 @@ export interface LdkNode {
   networkGraph: NetworkGraph
   scorer: ProbabilisticScorer
   peerManager: PeerManager
+  onionMessenger: OnionMessenger
   eventHandler: EventHandler
 }
 
@@ -62,6 +66,7 @@ export interface InitResult {
   watchState: WatchState
   cleanupEventHandler: () => void
   setBdkWallet: (wallet: import('@bitcoindevkit/bdk-wallet-web').Wallet | null) => void
+  setPaymentCallback: (cb: PaymentEventCallback | undefined) => void
 }
 
 // WASM double-init guard: deduplicate concurrent calls from React StrictMode
@@ -270,12 +275,35 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     )
   }
 
-  // 10. Create PeerManager
+  // 10. Create P2PGossipSync for routing message handling.
+  // Even though we use RGS for bulk graph population, P2PGossipSync is needed
+  // as the RoutingMessageHandler to process incremental peer gossip and signal
+  // to LDK that the routing graph is available for pathfinding.
+  const gossipSync = P2PGossipSync.constructor_new(
+    networkGraph,
+    Option_UtxoLookupZ.constructor_none(),
+    logger,
+  )
+
+  // 11. Create OnionMessenger (required for BOLT 12 offers and BIP 353)
   const ignorer = IgnoringMessageHandler.constructor_new()
+  const onionMessenger = OnionMessenger.constructor_new(
+    keysManager.as_EntropySource(),
+    keysManager.as_NodeSigner(),
+    logger,
+    channelManager.as_NodeIdLookUp(),
+    messageRouter.as_MessageRouter(),
+    channelManager.as_OffersMessageHandler(),
+    channelManager.as_AsyncPaymentsMessageHandler(),
+    channelManager.as_DNSResolverMessageHandler(),
+    ignorer.as_CustomOnionMessageHandler()
+  )
+
+  // 12. Create PeerManager
   const peerManager = PeerManager.constructor_new(
     channelManager.as_ChannelMessageHandler(),
-    ignorer.as_RoutingMessageHandler(),
-    ignorer.as_OnionMessageHandler(),
+    gossipSync.as_RoutingMessageHandler(),
+    onionMessenger.as_OnionMessageHandler(),
     ignorer.as_CustomMessageHandler(),
     Math.floor(Date.now() / 1000),
     keysManager.as_EntropySource().get_secure_random_bytes(),
@@ -283,7 +311,7 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     keysManager.as_NodeSigner()
   )
 
-  // 11. Derive node public key
+  // 13. Derive node public key
   const nodeIdResult = keysManager.as_NodeSigner().get_node_id(Recipient.LDKRecipient_Node)
   if (!nodeIdResult.is_ok()) {
     throw new Error('Failed to derive node ID from KeysManager')
@@ -293,9 +321,10 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   }
   const nodeId = bytesToHex(nodeIdResult.res)
 
-  // 12. Create EventHandler
+  // 14. Create EventHandler
+  let paymentCallback: PaymentEventCallback | undefined
   const { handler: eventHandler, cleanup: cleanupEventHandler, setBdkWallet } =
-    createEventHandler(channelManager)
+    createEventHandler(channelManager, (...args) => paymentCallback?.(...args))
 
   const node: LdkNode = {
     nodeId,
@@ -309,10 +338,19 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     networkGraph,
     scorer,
     peerManager,
+    onionMessenger,
     eventHandler,
   }
 
-  return { node, watchState, cleanupEventHandler, setBdkWallet }
+  return {
+    node,
+    watchState,
+    cleanupEventHandler,
+    setBdkWallet,
+    setPaymentCallback: (cb: PaymentEventCallback | undefined) => {
+      paymentCallback = cb
+    },
+  }
 }
 
 function deserializeMonitors(

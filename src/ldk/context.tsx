@@ -1,6 +1,19 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
+import {
+  UtilMethods,
+  Retry,
+  Option_u64Z,
+  Option_u64Z_Some,
+  Option_StrZ,
+  Option_ThirtyTwoBytesZ_Some,
+  Option_PaymentFailureReasonZ_Some,
+  Result_C3Tuple_ThirtyTwoBytesRecipientOnionFieldsRouteParametersZNoneZ_OK,
+  type Bolt11Invoice,
+  type Offer,
+  type HumanReadableName,
+} from 'lightningdevkit'
 import { initializeLdk, type LdkNode } from './init'
-import { LdkContext, defaultLdkContextValue, type LdkContextValue } from './ldk-context'
+import { LdkContext, defaultLdkContextValue, type LdkContextValue, type PaymentResult } from './ldk-context'
 import { SIGNET_CONFIG } from './config'
 import { EsploraClient } from './sync/esplora-client'
 import { startSyncLoop } from './sync/chain-sync'
@@ -78,6 +91,154 @@ export function LdkProvider({
     await deleteKnownPeer(pubkey)
   }, [])
 
+  // Payment result store: tracks outcomes of in-flight payments.
+  // Bounded to 100 entries to prevent unbounded memory growth.
+  const MAX_PAYMENT_RESULTS = 100
+  const paymentResultsRef = useRef(new Map<string, PaymentResult>())
+  const setPaymentResult = (key: string, value: PaymentResult) => {
+    const map = paymentResultsRef.current
+    if (map.size >= MAX_PAYMENT_RESULTS) {
+      const oldest = map.keys().next().value
+      if (oldest !== undefined) map.delete(oldest)
+    }
+    map.set(key, value)
+  }
+
+  const sendBolt11Payment = useCallback(
+    (invoice: Bolt11Invoice, amountMsat?: bigint): Uint8Array => {
+      const node = nodeRef.current
+      if (!node) throw new Error('Node not initialized')
+
+      const hasAmount = invoice.amount_milli_satoshis() instanceof Option_u64Z_Some
+      if (!hasAmount && amountMsat == null) {
+        throw new Error('Amount is required for invoices without an embedded amount')
+      }
+      const paramsResult = hasAmount
+        ? UtilMethods.constructor_payment_parameters_from_invoice(invoice)
+        : UtilMethods.constructor_payment_parameters_from_variable_amount_invoice(
+            invoice,
+            amountMsat as bigint,
+          )
+
+      if (
+        !(
+          paramsResult instanceof
+          Result_C3Tuple_ThirtyTwoBytesRecipientOnionFieldsRouteParametersZNoneZ_OK
+        )
+      ) {
+        throw new Error('Failed to extract payment parameters from invoice')
+      }
+
+      const paymentHash = paramsResult.res.get_a()
+      const recipientOnion = paramsResult.res.get_b()
+      const routeParams = paramsResult.res.get_c()
+      const paymentId = paymentHash // use payment hash as ID (guaranteed unique per invoice)
+
+      const result = node.channelManager.send_payment(
+        paymentHash,
+        recipientOnion,
+        paymentId,
+        routeParams,
+        Retry.constructor_attempts(3),
+      )
+
+      if (!result.is_ok()) {
+        throw new Error('Payment routing failed — no route found or duplicate payment')
+      }
+
+      setPaymentResult(bytesToHex(paymentId), { status: 'pending' })
+      return paymentId
+    },
+    [],
+  )
+
+  const sendBolt12Payment = useCallback(
+    (offer: Offer, amountMsat?: bigint, payerNote?: string): Uint8Array => {
+      const node = nodeRef.current
+      if (!node) throw new Error('Node not initialized')
+
+      // Use 8 random bytes for payment ID (safe u128 range per institutional learning)
+      const paymentId = crypto.getRandomValues(new Uint8Array(32))
+
+      const result = node.channelManager.pay_for_offer(
+        offer,
+        Option_u64Z.constructor_none(), // quantity
+        amountMsat != null
+          ? Option_u64Z.constructor_some(amountMsat)
+          : Option_u64Z.constructor_none(),
+        payerNote
+          ? Option_StrZ.constructor_some(payerNote)
+          : Option_StrZ.constructor_none(),
+        paymentId,
+        Retry.constructor_attempts(3),
+        Option_u64Z.constructor_none(), // max routing fee
+      )
+
+      if (!result.is_ok()) {
+        throw new Error('Failed to initiate offer payment')
+      }
+
+      setPaymentResult(bytesToHex(paymentId), { status: 'pending' })
+      return paymentId
+    },
+    [],
+  )
+
+  const sendBip353Payment = useCallback(
+    (name: HumanReadableName, amountMsat: bigint): Uint8Array => {
+      const node = nodeRef.current
+      if (!node) throw new Error('Node not initialized')
+
+      const paymentId = crypto.getRandomValues(new Uint8Array(32))
+
+      // BIP 353 requires DNS resolver nodes (bLIP 32). Currently no resolvers configured
+      // for Mutinynet — this will fail gracefully with a timeout.
+      const result = node.channelManager.pay_for_offer_from_human_readable_name(
+        name,
+        amountMsat,
+        paymentId,
+        Retry.constructor_attempts(3),
+        Option_u64Z.constructor_none(), // max routing fee
+        [], // dns_resolvers — empty until bLIP 32 resolvers are available on signet
+      )
+
+      if (!result.is_ok()) {
+        throw new Error('Failed to initiate BIP 353 payment')
+      }
+
+      setPaymentResult(bytesToHex(paymentId), { status: 'pending' })
+      return paymentId
+    },
+    [],
+  )
+
+  const abandonPayment = useCallback((paymentId: Uint8Array): void => {
+    const node = nodeRef.current
+    if (!node) throw new Error('Node not initialized')
+    node.channelManager.abandon_payment(paymentId)
+  }, [])
+
+  const getPaymentResult = useCallback(
+    (paymentId: Uint8Array): PaymentResult | null => {
+      return paymentResultsRef.current.get(bytesToHex(paymentId)) ?? null
+    },
+    [],
+  )
+
+  const listRecentPayments = useCallback(() => {
+    const node = nodeRef.current
+    if (!node) return []
+    return node.channelManager.list_recent_payments()
+  }, [])
+
+  const outboundCapacityMsat = useCallback((): bigint => {
+    const node = nodeRef.current
+    if (!node) return 0n
+    return node.channelManager
+      .list_usable_channels()
+      .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     let syncHandle: { stop: () => void } | null = null
@@ -85,10 +246,31 @@ export function LdkProvider({
     let cleanupEventHandlerFn: (() => void) | null = null
 
     initializeLdk(ldkSeed)
-      .then(({ node, watchState, cleanupEventHandler, setBdkWallet }) => {
+      .then(({ node, watchState, cleanupEventHandler, setBdkWallet, setPaymentCallback }) => {
         if (cancelled) return
 
         nodeRef.current = node
+
+        // Expose node on window for dev console debugging
+        if (import.meta.env.DEV) {
+          ;(window as unknown as Record<string, unknown>).__ldkNode = node
+        }
+
+        // Wire payment event callback to update the result store
+        setPaymentCallback((event) => {
+          if (event.type === 'sent') {
+            setPaymentResult(event.paymentHash, {
+              status: 'sent',
+              preimage: event.preimage,
+              feePaidMsat: event.feePaidMsat,
+            })
+          } else {
+            setPaymentResult(event.paymentHash, {
+              status: 'failed',
+              reason: event.reason,
+            })
+          }
+        })
         cleanupEventHandlerFn = cleanupEventHandler
 
         const esplora = new EsploraClient(SIGNET_CONFIG.esploraUrl)
@@ -97,27 +279,33 @@ export function LdkProvider({
           node.chainMonitor.as_Confirm(),
         ]
 
-        syncHandle = startSyncLoop(
+        syncHandle = startSyncLoop({
           confirmables,
           watchState,
           esplora,
-          node.channelManager,
-          node.chainMonitor,
-          node.networkGraph,
-          node.scorer,
-          SIGNET_CONFIG.chainPollIntervalMs
-        )
+          channelManager: node.channelManager,
+          chainMonitor: node.chainMonitor,
+          networkGraph: node.networkGraph,
+          logger: node.logger,
+          scorer: node.scorer,
+          intervalMs: SIGNET_CONFIG.chainPollIntervalMs,
+          rgsUrl: SIGNET_CONFIG.rgsUrl,
+          rgsSyncIntervalTicks: SIGNET_CONFIG.rgsSyncIntervalTicks,
+        })
 
         // PeerManager timer + LDK event processing every ~10s
         peerTimerId = setInterval(() => {
           node.peerManager.timer_tick_occurred()
           node.peerManager.process_events()
 
-          // Drain LDK events from both ChannelManager and ChainMonitor
+          // Drain LDK events from ChannelManager, ChainMonitor, and OnionMessenger
           node.channelManager
             .as_EventsProvider()
             .process_pending_events(node.eventHandler)
           node.chainMonitor
+            .as_EventsProvider()
+            .process_pending_events(node.eventHandler)
+          node.onionMessenger
             .as_EventsProvider()
             .process_pending_events(node.eventHandler)
 
@@ -145,6 +333,13 @@ export function LdkProvider({
           forgetPeer,
           createChannel,
           setBdkWallet,
+          sendBolt11Payment,
+          sendBolt12Payment,
+          sendBip353Payment,
+          abandonPayment,
+          getPaymentResult,
+          listRecentPayments,
+          outboundCapacityMsat,
         })
 
         // Auto-reconnect to known peers (fire-and-forget, non-blocking)
@@ -182,7 +377,7 @@ export function LdkProvider({
       if (peerTimerId !== null) clearInterval(peerTimerId)
       nodeRef.current = null
     }
-  }, [connectToPeer, forgetPeer, createChannel, ldkSeed])
+  }, [connectToPeer, forgetPeer, createChannel, sendBolt11Payment, sendBolt12Payment, sendBip353Payment, abandonPayment, getPaymentResult, listRecentPayments, outboundCapacityMsat, ldkSeed])
 
   return <LdkContext value={state}>{children}</LdkContext>
 }

@@ -16,6 +16,9 @@ import {
   Event_BumpTransaction,
   Event_DiscardFunding,
   Option_ThirtyTwoBytesZ_Some,
+  Option_u64Z_Some,
+  Option_PaymentFailureReasonZ_Some,
+  PaymentFailureReason,
   Result_NoneReplayEventZ,
   type ChannelManager,
   type Event,
@@ -27,7 +30,7 @@ import {
   Amount,
   SignOptions,
 } from '@bitcoindevkit/bdk-wallet-web'
-import { idbPut } from '../storage/idb'
+import { idbPut, idbGet, idbDelete } from '../storage/idb'
 import { bytesToHex } from '../utils'
 import { putChangeset } from '../../onchain/storage/changeset'
 import { extractTxBytes, broadcastTransaction } from '../../onchain/tx-bridge'
@@ -35,7 +38,15 @@ import { ONCHAIN_CONFIG } from '../../onchain/config'
 
 const MAX_FORWARD_DELAY_MS = 10_000
 
-export function createEventHandler(channelManager: ChannelManager): {
+export type PaymentEventCallback = (event:
+  | { type: 'sent'; paymentHash: string; preimage: Uint8Array; feePaidMsat: bigint | null }
+  | { type: 'failed'; paymentHash: string; reason: string }
+) => void
+
+export function createEventHandler(
+  channelManager: ChannelManager,
+  onPaymentEvent?: PaymentEventCallback,
+): {
   handler: EventHandler
   cleanup: () => void
   setBdkWallet: (wallet: Wallet | null) => void
@@ -43,18 +54,13 @@ export function createEventHandler(channelManager: ChannelManager): {
   let forwardTimerId: ReturnType<typeof setTimeout> | null = null
   let bdkWallet: Wallet | null = null
 
-  // In-memory cache of signed funding transactions waiting for FundingTxBroadcastSafe.
-  // Keyed by temporary_channel_id hex → raw tx hex.
-  // TEMPORARY: Remove when bdk-wasm exposes Transaction.to_bytes() (bdk-wasm#38)
-  const fundingTxCache = new Map<string, string>()
-
   const handler = EventHandler.new_impl({
     handle_event(event: Event): Result_NoneReplayEventZ {
       try {
-        handleEvent(event, channelManager, bdkWallet, fundingTxCache, (id) => {
+        handleEvent(event, channelManager, bdkWallet, (id) => {
           if (forwardTimerId !== null) clearTimeout(forwardTimerId)
           forwardTimerId = id
-        })
+        }, onPaymentEvent)
       } catch (err: unknown) {
         console.error('[LDK Event] Unhandled error in event handler:', err)
       }
@@ -69,7 +75,6 @@ export function createEventHandler(channelManager: ChannelManager): {
         clearTimeout(forwardTimerId)
         forwardTimerId = null
       }
-      fundingTxCache.clear()
     },
     setBdkWallet: (wallet: Wallet | null) => {
       bdkWallet = wallet
@@ -81,8 +86,8 @@ function handleEvent(
   event: Event,
   channelManager: ChannelManager,
   bdkWallet: Wallet | null,
-  fundingTxCache: Map<string, string>,
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
+  onPaymentEvent?: PaymentEventCallback,
 ): void {
   // Payment events
   if (event instanceof Event_PaymentClaimable) {
@@ -119,18 +124,34 @@ function handleEvent(
   }
 
   if (event instanceof Event_PaymentSent) {
-    console.log(
-      '[LDK Event] PaymentSent:',
-      bytesToHex(event.payment_hash),
-    )
+    const paymentHash = bytesToHex(event.payment_hash)
+    const paymentIdHex = event.payment_id instanceof Option_ThirtyTwoBytesZ_Some
+      ? bytesToHex(event.payment_id.some)
+      : paymentHash
+    const feePaid = event.fee_paid_msat
+    const feePaidMsat = feePaid instanceof Option_u64Z_Some ? feePaid.some : null
+    console.log('[LDK Event] PaymentSent:', paymentHash)
+    onPaymentEvent?.({
+      type: 'sent',
+      paymentHash: paymentIdHex,
+      preimage: event.payment_preimage,
+      feePaidMsat,
+    })
     return
   }
 
   if (event instanceof Event_PaymentFailed) {
-    console.warn(
-      '[LDK Event] PaymentFailed:',
-      bytesToHex(event.payment_hash),
-    )
+    const paymentIdHex = bytesToHex(event.payment_id)
+    const paymentHash = event.payment_hash instanceof Option_ThirtyTwoBytesZ_Some
+      ? bytesToHex(event.payment_hash.some)
+      : paymentIdHex
+    const reasonOpt = event.reason
+    let reason = 'Payment failed'
+    if (reasonOpt instanceof Option_PaymentFailureReasonZ_Some) {
+      reason = describePaymentFailure(reasonOpt.some)
+    }
+    console.warn('[LDK Event] PaymentFailed:', paymentHash, reason)
+    onPaymentEvent?.({ type: 'failed', paymentHash: paymentIdHex, reason })
     return
   }
 
@@ -244,10 +265,13 @@ function handleEvent(
         return
       }
 
-      // Cache the raw tx hex for broadcasting when FundingTxBroadcastSafe fires
+      // Persist the raw tx hex to IDB for broadcasting when FundingTxBroadcastSafe fires.
+      // IDB survives page reloads, unlike the previous in-memory Map cache.
       const tempChannelIdHex = bytesToHex(event.temporary_channel_id.write())
       const txHex = bytesToHex(rawTxBytes)
-      fundingTxCache.set(tempChannelIdHex, txHex)
+      void idbPut('ldk_funding_txs', tempChannelIdHex, txHex).catch((err: unknown) =>
+        console.error('[LDK Event] Failed to persist funding tx to IDB:', err),
+      )
 
       console.log(
         '[LDK Event] FundingGenerationReady: funding tx registered',
@@ -273,27 +297,9 @@ function handleEvent(
 
   if (event instanceof Event_FundingTxBroadcastSafe) {
     const tempChannelIdHex = bytesToHex(event.former_temporary_channel_id.write())
-    const txHex = fundingTxCache.get(tempChannelIdHex)
-
-    if (txHex) {
-      void broadcastTransaction(txHex, ONCHAIN_CONFIG.esploraUrl)
-        .then((txid) => {
-          fundingTxCache.delete(tempChannelIdHex)
-          console.log('[LDK Event] FundingTxBroadcastSafe: broadcast tx:', txid)
-        })
-        .catch((err: unknown) => {
-          console.error(
-            '[LDK Event] FundingTxBroadcastSafe: broadcast failed (tx retained in cache):',
-            err,
-          )
-        })
-    } else {
-      console.warn(
-        '[LDK Event] FundingTxBroadcastSafe: no cached tx for',
-        tempChannelIdHex.substring(0, 16) + '...',
-        '— may have been cleaned up or tab was reloaded',
-      )
-    }
+    void broadcastPersistedFundingTx(tempChannelIdHex).catch((err: unknown) => {
+      console.error('[LDK Event] FundingTxBroadcastSafe: broadcast failed:', err)
+    })
     return
   }
 
@@ -306,9 +312,11 @@ function handleEvent(
   }
 
   if (event instanceof Event_DiscardFunding) {
-    // DiscardFunding provides channel_id (final, not temporary) so we cannot
-    // directly look up the cached tx. The leaked cache entry is acceptable for
-    // this temporary workaround — it's cleaned up on tab refresh.
+    // DiscardFunding provides channel_id (final, not temporary), so we cannot
+    // directly look up the persisted funding tx by temporary_channel_id.
+    // Orphaned entries in ldk_funding_txs are small (a few hundred bytes each)
+    // and will accumulate slowly. This is acceptable for now.
+    // TODO: Store a temp→final channel ID mapping in ChannelPending to enable cleanup.
     console.log(
       '[LDK Event] DiscardFunding:',
       bytesToHex(event.channel_id.write()).substring(0, 16) + '...',
@@ -326,4 +334,43 @@ function handleEvent(
 
   // Catch-all for unhandled event types (future LDK versions may add new events)
   console.log('[LDK Event] Unhandled event type:', event.constructor.name)
+}
+
+async function broadcastPersistedFundingTx(tempChannelIdHex: string): Promise<void> {
+  const txHex = await idbGet<string>('ldk_funding_txs', tempChannelIdHex)
+  if (!txHex) {
+    console.warn(
+      '[LDK Event] FundingTxBroadcastSafe: no persisted tx for',
+      tempChannelIdHex.substring(0, 16) + '...',
+    )
+    return
+  }
+  const txid = await broadcastTransaction(txHex, ONCHAIN_CONFIG.esploraUrl)
+  void idbDelete('ldk_funding_txs', tempChannelIdHex).catch(() => {})
+  console.log('[LDK Event] FundingTxBroadcastSafe: broadcast tx:', txid)
+}
+
+function describePaymentFailure(reason: PaymentFailureReason): string {
+  switch (reason) {
+    case PaymentFailureReason.LDKPaymentFailureReason_RecipientRejected:
+      return 'Payment was rejected by the recipient'
+    case PaymentFailureReason.LDKPaymentFailureReason_UserAbandoned:
+      return 'Payment was cancelled'
+    case PaymentFailureReason.LDKPaymentFailureReason_RetriesExhausted:
+      return 'No route found after multiple attempts'
+    case PaymentFailureReason.LDKPaymentFailureReason_PaymentExpired:
+      return 'Payment expired'
+    case PaymentFailureReason.LDKPaymentFailureReason_RouteNotFound:
+      return 'No route found to the recipient'
+    case PaymentFailureReason.LDKPaymentFailureReason_UnexpectedError:
+      return 'An unexpected error occurred'
+    case PaymentFailureReason.LDKPaymentFailureReason_UnknownRequiredFeatures:
+      return 'Recipient requires unsupported features'
+    case PaymentFailureReason.LDKPaymentFailureReason_InvoiceRequestExpired:
+      return 'Invoice request timed out — recipient may be offline'
+    case PaymentFailureReason.LDKPaymentFailureReason_InvoiceRequestRejected:
+      return 'Invoice request was rejected by the recipient'
+    default:
+      return 'Payment failed'
+  }
 }

@@ -20,9 +20,14 @@ vi.mock('lightningdevkit', () => {
   }
   class Event_PaymentSent extends MockEvent {
     payment_hash = new Uint8Array([1, 2, 3])
+    payment_id = new Option_ThirtyTwoBytesZ_Some(new Uint8Array([1, 2, 3]))
+    payment_preimage = new Uint8Array([7, 8, 9])
+    fee_paid_msat = new Option_u64Z_Some(BigInt(100))
   }
   class Event_PaymentFailed extends MockEvent {
-    payment_hash = new Uint8Array([1, 2, 3])
+    payment_id = new Uint8Array([1, 2, 3])
+    payment_hash = new Option_ThirtyTwoBytesZ_Some(new Uint8Array([1, 2, 3]))
+    reason = new Option_PaymentFailureReasonZ_Some(0) // RecipientRejected
   }
   class Event_PendingHTLCsForwardable extends MockEvent {
     time_forwardable = BigInt(2)
@@ -73,6 +78,33 @@ vi.mock('lightningdevkit', () => {
 
   class Option_ThirtyTwoBytesZ_None {}
 
+  class Option_u64Z_Some {
+    some: bigint
+    constructor(s: bigint) {
+      this.some = s
+    }
+  }
+
+  class Option_PaymentFailureReasonZ_Some {
+    some: number
+    constructor(s: number) {
+      this.some = s
+    }
+  }
+
+  const PaymentFailureReason = {
+    LDKPaymentFailureReason_RecipientRejected: 0,
+    LDKPaymentFailureReason_UserAbandoned: 1,
+    LDKPaymentFailureReason_RetriesExhausted: 2,
+    LDKPaymentFailureReason_PaymentExpired: 3,
+    LDKPaymentFailureReason_RouteNotFound: 4,
+    LDKPaymentFailureReason_UnexpectedError: 5,
+    LDKPaymentFailureReason_UnknownRequiredFeatures: 6,
+    LDKPaymentFailureReason_InvoiceRequestExpired: 7,
+    LDKPaymentFailureReason_InvoiceRequestRejected: 8,
+    LDKPaymentFailureReason_BlindedPathCreationFailed: 9,
+  }
+
   return {
     EventHandler: {
       new_impl: vi.fn(
@@ -98,14 +130,20 @@ vi.mock('lightningdevkit', () => {
     Event_DiscardFunding,
     Option_ThirtyTwoBytesZ_Some,
     Option_ThirtyTwoBytesZ_None,
+    Option_u64Z_Some,
+    Option_PaymentFailureReasonZ_Some,
+    PaymentFailureReason,
     Result_NoneReplayEventZ: {
       constructor_ok: vi.fn(() => ({ is_ok: () => true })),
     },
   }
 })
 
+const mockIdbGet = vi.fn(() => Promise.resolve(undefined))
 vi.mock('../storage/idb', () => ({
   idbPut: vi.fn(() => Promise.resolve()),
+  idbGet: (...args: unknown[]) => mockIdbGet(...args),
+  idbDelete: vi.fn(() => Promise.resolve()),
 }))
 
 const mockExtractTxBytes = vi.fn(() => new Uint8Array([0xde, 0xad]))
@@ -251,6 +289,7 @@ describe('createEventHandler', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('PaymentFailed'),
       expect.any(String),
+      expect.any(String),
     )
   })
 
@@ -370,7 +409,7 @@ describe('createEventHandler', () => {
     result.cleanup()
   })
 
-  it('does not cache tx when funding_transaction_generated fails', () => {
+  it('does not persist tx when funding_transaction_generated fails', () => {
     mockFundingTransactionGenerated.mockReturnValueOnce({ is_ok: () => false })
     const cm = createMockChannelManager()
     const result = createEventHandler(cm)
@@ -384,49 +423,40 @@ describe('createEventHandler', () => {
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('funding_transaction_generated failed'),
     )
-    // Verify broadcast is never called (no cached tx)
-    handler(new Event_FundingTxBroadcastSafe())
-    expect(mockBroadcastTransaction).not.toHaveBeenCalled()
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('no cached tx'),
-      expect.any(String),
-      expect.any(String),
-    )
     result.cleanup()
   })
 
-  it('broadcasts cached tx on FundingTxBroadcastSafe', async () => {
-    // Set up with BDK wallet to populate the cache via FundingGenerationReady
+  it('broadcasts persisted tx on FundingTxBroadcastSafe', async () => {
+    // Mock IDB to return a persisted funding tx
+    mockIdbGet.mockResolvedValueOnce('dead')
+
     const cm = createMockChannelManager()
     const result = createEventHandler(cm)
-    result.setBdkWallet(mockBdkWallet as never)
     const handler = (
       result.handler as unknown as { _impl: { handle_event: HandleEventFn } }
     )._impl.handle_event
 
-    // First, trigger funding to populate cache
-    handler(new Event_FundingGenerationReady())
-
-    // Then trigger broadcast
     handler(new Event_FundingTxBroadcastSafe())
 
-    // Allow the async broadcast to resolve
+    // Allow the async IDB read + broadcast to resolve
     await vi.waitFor(() => {
       expect(mockBroadcastTransaction).toHaveBeenCalledWith(
-        'dead', // txBytesToHex result
+        'dead',
         'https://test.esplora/api',
       )
     })
     result.cleanup()
   })
 
-  it('warns when FundingTxBroadcastSafe has no cached tx', () => {
+  it('warns when FundingTxBroadcastSafe has no persisted tx', async () => {
+    mockIdbGet.mockResolvedValueOnce(undefined)
     handleEvent(new Event_FundingTxBroadcastSafe())
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('no cached tx'),
-      expect.any(String),
-      expect.any(String),
-    )
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('no persisted tx'),
+        expect.any(String),
+      )
+    })
   })
 
   it('warns on BumpTransaction', () => {
