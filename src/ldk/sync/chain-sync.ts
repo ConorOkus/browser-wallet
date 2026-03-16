@@ -114,43 +114,7 @@ export interface SyncLoopConfig {
   rgsSyncIntervalTicks?: number
 }
 
-export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle
-/** @deprecated Use config object overload */
-export function startSyncLoop(
-  confirmables: Confirm[],
-  watchState: WatchState,
-  esplora: EsploraClient,
-  channelManager: ChannelManager,
-  chainMonitor: ChainMonitor,
-  networkGraph: NetworkGraph,
-  scorer: ProbabilisticScorer,
-  intervalMs: number
-): SyncLoopHandle
-export function startSyncLoop(
-  configOrConfirmables: SyncLoopConfig | Confirm[],
-  watchState?: WatchState,
-  esplora?: EsploraClient,
-  channelManager?: ChannelManager,
-  chainMonitor?: ChainMonitor,
-  networkGraph?: NetworkGraph,
-  scorer?: ProbabilisticScorer,
-  intervalMs?: number,
-): SyncLoopHandle {
-  // Normalize to config object
-  const config: SyncLoopConfig = Array.isArray(configOrConfirmables)
-    ? {
-        confirmables: configOrConfirmables,
-        watchState: watchState!,
-        esplora: esplora!,
-        channelManager: channelManager!,
-        chainMonitor: chainMonitor!,
-        networkGraph: networkGraph!,
-        logger: null as unknown as Logger,
-        scorer: scorer!,
-        intervalMs: intervalMs!,
-      }
-    : configOrConfirmables
-
+export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
   let lastTipHash: string | null = null
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   let stopped = false
@@ -178,8 +142,8 @@ export function startSyncLoop(
   async function tick() {
     if (stopped) return
     try {
-      // Initialize RGS on first tick (non-blocking for chain sync)
-      await ensureRgs()
+      // Initialize RGS concurrently — don't block chain sync on gossip fetch
+      void ensureRgs()
 
       lastTipHash = await syncOnce(
         config.confirmables,
@@ -208,11 +172,13 @@ export function startSyncLoop(
         await idbPut('ldk_scorer', 'primary', config.scorer.write())
       }
 
-      // Periodic RGS delta sync
+      // Periodic RGS delta sync — persist graph immediately after to keep
+      // timestamp and graph in sync (prevents data gap if browser crashes)
       const rgsInterval = config.rgsSyncIntervalTicks ?? 20
       if (rgsHandle && config.rgsUrl && (tickCount + 1) % rgsInterval === 0) {
         try {
           await syncRapidGossip(rgsHandle, config.rgsUrl)
+          await idbPut('ldk_network_graph', 'primary', config.networkGraph.write())
         } catch (err) {
           console.warn('[LDK Sync] RGS periodic sync failed:', err)
         }

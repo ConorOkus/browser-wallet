@@ -61,12 +61,23 @@ async function applyRgsUpdate(
   const url = `${rgsUrl}/${lastSyncTimestamp}`
   console.log(`[RGS] Fetching snapshot from ${url}`)
 
+  const MAX_RGS_RESPONSE_BYTES = 50 * 1024 * 1024 // 50 MB
+
   const response = await fetch(url)
   if (!response.ok) {
     throw new Error(`[RGS] HTTP ${response.status}: ${response.statusText}`)
   }
 
+  const contentLength = response.headers.get('content-length')
+  if (contentLength && parseInt(contentLength, 10) > MAX_RGS_RESPONSE_BYTES) {
+    throw new Error(`[RGS] Response too large: ${contentLength} bytes`)
+  }
+
   const buffer = await response.arrayBuffer()
+  if (buffer.byteLength > MAX_RGS_RESPONSE_BYTES) {
+    throw new Error(`[RGS] Response too large: ${buffer.byteLength} bytes`)
+  }
+
   const updateData = new Uint8Array(buffer)
   console.log(`[RGS] Received ${updateData.byteLength} bytes`)
 
