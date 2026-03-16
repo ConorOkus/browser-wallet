@@ -20,7 +20,23 @@ import {
   Option_PaymentFailureReasonZ_Some,
   PaymentFailureReason,
   Result_NoneReplayEventZ,
+  type ClosureReason,
+  ClosureReason_CounterpartyForceClosed,
+  ClosureReason_HolderForceClosed,
+  ClosureReason_LegacyCooperativeClosure,
+  ClosureReason_CounterpartyInitiatedCooperativeClosure,
+  ClosureReason_LocallyInitiatedCooperativeClosure,
+  ClosureReason_CommitmentTxConfirmed,
+  ClosureReason_FundingTimedOut,
+  ClosureReason_ProcessingError,
+  ClosureReason_DisconnectedPeer,
+  ClosureReason_OutdatedChannelManager,
+  ClosureReason_CounterpartyCoopClosedUnfundedChannel,
+  ClosureReason_FundingBatchClosure,
+  ClosureReason_HTLCsTimedOut,
+  ClosureReason_PeerFeerateTooLow,
   type ChannelManager,
+  type KeysManager,
   type Event,
 } from 'lightningdevkit'
 import {
@@ -35,6 +51,7 @@ import { bytesToHex } from '../utils'
 import { putChangeset } from '../../onchain/storage/changeset'
 import { extractTxBytes, broadcastTransaction } from '../../onchain/tx-bridge'
 import { ONCHAIN_CONFIG } from '../../onchain/config'
+import { sweepSpendableOutputs } from '../sweep'
 
 const MAX_FORWARD_DELAY_MS = 10_000
 
@@ -45,6 +62,7 @@ export type PaymentEventCallback = (event:
 
 export function createEventHandler(
   channelManager: ChannelManager,
+  keysManager: KeysManager,
   onPaymentEvent?: PaymentEventCallback,
 ): {
   handler: EventHandler
@@ -57,7 +75,7 @@ export function createEventHandler(
   const handler = EventHandler.new_impl({
     handle_event(event: Event): Result_NoneReplayEventZ {
       try {
-        handleEvent(event, channelManager, bdkWallet, (id) => {
+        handleEvent(event, channelManager, keysManager, bdkWallet, (id) => {
           if (forwardTimerId !== null) clearTimeout(forwardTimerId)
           forwardTimerId = id
         }, onPaymentEvent)
@@ -78,6 +96,23 @@ export function createEventHandler(
     },
     setBdkWallet: (wallet: Wallet | null) => {
       bdkWallet = wallet
+      // Startup sweep recovery: when BDK wallet becomes available, sweep any
+      // SpendableOutputs persisted from a previous session (crash recovery)
+      if (wallet) {
+        const addressInfo = wallet.next_unused_address('external')
+        const destinationScript = addressInfo.address.script_pubkey.as_bytes()
+        void sweepSpendableOutputs(
+          keysManager,
+          destinationScript,
+          ONCHAIN_CONFIG.esploraUrl,
+        ).then((result) => {
+          if (result.swept > 0) {
+            console.log('[LDK] Startup sweep: swept', result.swept, 'output(s), txid:', result.txid)
+          }
+        }).catch((err: unknown) => {
+          console.warn('[LDK] Startup sweep failed (will retry on next SpendableOutputs event):', err)
+        })
+      }
     },
   }
 }
@@ -85,6 +120,7 @@ export function createEventHandler(
 function handleEvent(
   event: Event,
   channelManager: ChannelManager,
+  keysManager: KeysManager,
   bdkWallet: Wallet | null,
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
   onPaymentEvent?: PaymentEventCallback,
@@ -187,16 +223,13 @@ function handleEvent(
   }
 
   if (event instanceof Event_ChannelClosed) {
-    console.log(
-      '[LDK Event] ChannelClosed:',
-      bytesToHex(event.channel_id.write()),
-      'reason:',
-      event.reason,
-    )
+    const channelIdHex = bytesToHex(event.channel_id.write())
+    const reason = describeClosureReason(event.reason)
+    console.log('[LDK Event] ChannelClosed:', channelIdHex, 'reason:', reason)
     return
   }
 
-  // Spendable outputs — persist descriptors to IDB for future sweep.
+  // Spendable outputs — persist descriptors to IDB then attempt immediate sweep.
   // Note: The IDB write is async but handle_event is sync. If the browser
   // crashes before the write commits, descriptors may be lost. This is a
   // known limitation of the sync/async bridge — the risk window is small
@@ -204,18 +237,34 @@ function handleEvent(
   if (event instanceof Event_SpendableOutputs) {
     const key = crypto.randomUUID()
     const serialized = event.outputs.map((o) => o.write())
-    void idbPut('ldk_spendable_outputs', key, serialized).catch(
-      (err: unknown) => {
+    void idbPut('ldk_spendable_outputs', key, serialized)
+      .then(() => {
+        // Attempt immediate sweep if BDK wallet is available
+        if (bdkWallet) {
+          const addressInfo = bdkWallet.next_unused_address('external')
+          const destinationScript = addressInfo.address.script_pubkey.as_bytes()
+          return sweepSpendableOutputs(
+            keysManager,
+            destinationScript,
+            ONCHAIN_CONFIG.esploraUrl,
+          )
+        }
+      })
+      .then((result) => {
+        if (result && result.swept > 0) {
+          console.log('[LDK Event] SpendableOutputs: swept', result.swept, 'output(s), txid:', result.txid)
+        }
+      })
+      .catch((err: unknown) => {
         console.error(
-          '[LDK Event] CRITICAL: Failed to persist SpendableOutputs:',
+          '[LDK Event] CRITICAL: Failed to persist/sweep SpendableOutputs:',
           err,
         )
-      },
-    )
+      })
     console.log(
       '[LDK Event] SpendableOutputs: persisting',
       event.outputs.length,
-      'descriptor(s) for future sweep',
+      'descriptor(s) and attempting sweep',
     )
     return
   }
@@ -348,6 +397,24 @@ async function broadcastPersistedFundingTx(tempChannelIdHex: string): Promise<vo
   const txid = await broadcastTransaction(txHex, ONCHAIN_CONFIG.esploraUrl)
   void idbDelete('ldk_funding_txs', tempChannelIdHex).catch(() => {})
   console.log('[LDK Event] FundingTxBroadcastSafe: broadcast tx:', txid)
+}
+
+function describeClosureReason(reason: ClosureReason): string {
+  if (reason instanceof ClosureReason_CounterpartyForceClosed) return 'Counterparty force closed'
+  if (reason instanceof ClosureReason_HolderForceClosed) return 'Force closed by you'
+  if (reason instanceof ClosureReason_LegacyCooperativeClosure) return 'Cooperative close'
+  if (reason instanceof ClosureReason_CounterpartyInitiatedCooperativeClosure) return 'Cooperative close (initiated by peer)'
+  if (reason instanceof ClosureReason_LocallyInitiatedCooperativeClosure) return 'Cooperative close'
+  if (reason instanceof ClosureReason_CommitmentTxConfirmed) return 'Commitment transaction confirmed'
+  if (reason instanceof ClosureReason_FundingTimedOut) return 'Funding timed out'
+  if (reason instanceof ClosureReason_ProcessingError) return 'Processing error'
+  if (reason instanceof ClosureReason_DisconnectedPeer) return 'Peer disconnected'
+  if (reason instanceof ClosureReason_OutdatedChannelManager) return 'Outdated channel manager'
+  if (reason instanceof ClosureReason_CounterpartyCoopClosedUnfundedChannel) return 'Counterparty closed unfunded channel'
+  if (reason instanceof ClosureReason_FundingBatchClosure) return 'Funding batch closure'
+  if (reason instanceof ClosureReason_HTLCsTimedOut) return 'HTLCs timed out'
+  if (reason instanceof ClosureReason_PeerFeerateTooLow) return 'Peer feerate too low'
+  return 'Channel closed'
 }
 
 function describePaymentFailure(reason: PaymentFailureReason): string {

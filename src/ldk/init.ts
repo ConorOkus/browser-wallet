@@ -324,7 +324,11 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   // 14. Create EventHandler
   let paymentCallback: PaymentEventCallback | undefined
   const { handler: eventHandler, cleanup: cleanupEventHandler, setBdkWallet } =
-    createEventHandler(channelManager, (...args) => paymentCallback?.(...args))
+    createEventHandler(
+      channelManager,
+      keysManager,
+      (...args) => paymentCallback?.(...args),
+    )
 
   const node: LdkNode = {
     nodeId,
