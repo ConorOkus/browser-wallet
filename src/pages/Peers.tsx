@@ -102,10 +102,11 @@ export function Peers() {
     setPeers(entries)
   }, [ldk.status]) // eslint-disable-line react-hooks/exhaustive-deps -- only re-run when status changes, not on every context object change
 
-  // Load peers on mount and when ldk becomes ready
+  // Refresh peers on mount, when ldk becomes ready, and when channel state changes
+  const channelChangeCounter = ldk.status === 'ready' ? ldk.channelChangeCounter : 0
   useEffect(() => {
     void refreshPeers()
-  }, [refreshPeers])
+  }, [refreshPeers, channelChangeCounter])
 
   const handleConnect = useCallback(() => {
     setConnectError(null)

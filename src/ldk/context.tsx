@@ -32,6 +32,8 @@ export function LdkProvider({
   const [state, setState] = useState<LdkContextValue>(defaultLdkContextValue)
   const nodeRef = useRef<LdkNode | null>(null)
   const lightningBalanceSatsRef = useRef(0n)
+  const channelChangeCounterRef = useRef(0)
+  const lastChannelSnapshotRef = useRef('')
   const activeConnections = useRef<Map<string, PeerConnection>>(new Map())
 
   const connectToPeer = useCallback(
@@ -373,11 +375,24 @@ export function LdkProvider({
             .list_usable_channels()
             .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
           const newBalanceSats = msatToSatFloor(capacityMsat)
-          if (newBalanceSats !== lightningBalanceSatsRef.current) {
+          const balanceChanged = newBalanceSats !== lightningBalanceSatsRef.current
+
+          // Detect channel state changes (count, ready, usable status)
+          const channels = node.channelManager.list_channels()
+          const snapshot = channels
+            .map((ch) => `${bytesToHex(ch.get_channel_id().write())}:${ch.get_is_channel_ready()}:${ch.get_is_usable()}`)
+            .sort()
+            .join(',')
+          const channelsChanged = snapshot !== lastChannelSnapshotRef.current
+          lastChannelSnapshotRef.current = snapshot
+
+          if (balanceChanged || channelsChanged) {
             lightningBalanceSatsRef.current = newBalanceSats
+            if (channelsChanged) channelChangeCounterRef.current += 1
+            const newCounter = channelChangeCounterRef.current
             setState((prev) =>
               prev.status === 'ready'
-                ? { ...prev, lightningBalanceSats: newBalanceSats }
+                ? { ...prev, lightningBalanceSats: newBalanceSats, channelChangeCounter: newCounter }
                 : prev,
             )
           }
@@ -425,6 +440,7 @@ export function LdkProvider({
           listRecentPayments,
           outboundCapacityMsat,
           lightningBalanceSats: initialBalanceSats,
+          channelChangeCounter: 0,
         })
 
         // Auto-reconnect to known peers (fire-and-forget, non-blocking)

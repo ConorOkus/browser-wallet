@@ -35,6 +35,8 @@ export type LdkContextValue =
       outboundCapacityMsat: () => bigint
       /** Cached outbound capacity in sats, updated every ~10s. Use for balance display. */
       lightningBalanceSats: bigint
+      /** Monotonic counter that increments when channel state changes. Use to trigger UI refreshes. */
+      channelChangeCounter: number
     }
   | { status: 'error'; node: null; nodeId: null; error: Error }
 
