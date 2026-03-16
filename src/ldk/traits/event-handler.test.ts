@@ -175,6 +175,7 @@ vi.mock('../storage/idb', () => ({
   idbPut: vi.fn(() => Promise.resolve()),
   idbGet: () => mockIdbGet(),
   idbDelete: vi.fn(() => Promise.resolve()),
+  idbGetAll: vi.fn(() => Promise.resolve(new Map())),
 }))
 
 const mockExtractTxBytes = vi.fn((_psbt: string) => new Uint8Array([0xde, 0xad]))

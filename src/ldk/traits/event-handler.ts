@@ -47,6 +47,7 @@ import {
   SignOptions,
 } from '@bitcoindevkit/bdk-wallet-web'
 import { idbPut, idbGet, idbDelete } from '../storage/idb'
+import { persistPayment, updatePaymentStatus } from '../storage/payment-history'
 import { bytesToHex } from '../utils'
 import { putChangeset } from '../../onchain/storage/changeset'
 import { extractTxBytes, broadcastTransaction } from '../../onchain/tx-bridge'
@@ -161,12 +162,22 @@ function handleEvent(
   }
 
   if (event instanceof Event_PaymentClaimed) {
+    const paymentHash = bytesToHex(event.payment_hash)
     console.log(
       '[LDK Event] PaymentClaimed:',
-      bytesToHex(event.payment_hash),
+      paymentHash,
       'amount_msat:',
       event.amount_msat.toString(),
     )
+    void persistPayment({
+      paymentHash,
+      direction: 'inbound',
+      amountMsat: event.amount_msat,
+      status: 'succeeded',
+      feePaidMsat: null,
+      createdAt: Date.now(),
+      failureReason: null,
+    })
     return
   }
 
@@ -178,6 +189,7 @@ function handleEvent(
     const feePaid = event.fee_paid_msat
     const feePaidMsat = feePaid instanceof Option_u64Z_Some ? feePaid.some : null
     console.log('[LDK Event] PaymentSent:', paymentHash)
+    void updatePaymentStatus(paymentIdHex, 'succeeded', feePaidMsat)
     onPaymentEvent?.({
       type: 'sent',
       paymentHash: paymentIdHex,
@@ -198,6 +210,7 @@ function handleEvent(
       reason = describePaymentFailure(reasonOpt.some)
     }
     console.warn('[LDK Event] PaymentFailed:', paymentHash, reason)
+    void updatePaymentStatus(paymentIdHex, 'failed', null, reason)
     onPaymentEvent?.({ type: 'failed', paymentHash: paymentIdHex, reason })
     return
   }
