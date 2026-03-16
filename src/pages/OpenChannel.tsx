@@ -11,19 +11,18 @@ import { Check, XClose } from '../components/icons'
 
 interface ConnectedPeer {
   pubkey: string
-  host?: string
-  port?: number
 }
 
 type OpenChannelStep =
   | { step: 'select-peer' }
   | { step: 'amount'; peer: ConnectedPeer }
   | { step: 'reviewing'; peer: ConnectedPeer; amountSats: bigint; estimatedFeeSats: bigint; feeRate: bigint }
-  | { step: 'opening' }
   | { step: 'success' }
   | { step: 'error'; message: string }
 
 const MIN_CHANNEL_SATS = 20_000n
+// LDK protocol limit for non-wumbo channels
+const MAX_CHANNEL_SATS = 16_777_215n
 const MAX_DIGITS = 8
 // Approximate funding tx vsize: 1-input P2TR → ~140 vB
 const APPROX_FUNDING_TX_VBYTES = 140n
@@ -52,7 +51,7 @@ export function OpenChannel() {
       pubkey: bytesToHex(p.get_counterparty_node_id()),
     }))
     setPeers(entries)
-  }, [ldk])
+  }, [ldk.status]) // eslint-disable-line react-hooks/exhaustive-deps -- only re-run when status changes, not on every context object change
 
   useEffect(() => {
     refreshPeers()
@@ -105,6 +104,11 @@ export function OpenChannel() {
       return
     }
 
+    if (amountSats > MAX_CHANNEL_SATS) {
+      setAmountError(`Maximum channel size is ${MAX_CHANNEL_SATS.toLocaleString()} sats`)
+      return
+    }
+
     const rate = feeRate ?? 1n
     const estimatedFee = rate * APPROX_FUNDING_TX_VBYTES
 
@@ -128,7 +132,6 @@ export function OpenChannel() {
     if (ldk.status !== 'ready' || currentStep.step !== 'reviewing') return
 
     openingRef.current = true
-    setCurrentStep({ step: 'opening' })
 
     try {
       const pubkeyBytes = hexToBytes(currentStep.peer.pubkey)
@@ -156,26 +159,16 @@ export function OpenChannel() {
     )
   }
 
-  if (ldk.status === 'error') {
-    return (
-      <div className="flex min-h-dvh flex-col items-center justify-center bg-dark px-6">
-        <p className="text-lg font-semibold text-on-dark">Lightning node error</p>
-        <p className="mt-2 text-sm text-red-400">{ldk.error.message}</p>
-        <button
-          className="mt-6 text-sm text-accent"
-          onClick={() => void navigate('/settings/advanced')}
-        >
-          Back to Advanced
-        </button>
-      </div>
-    )
-  }
+  const gatewayError =
+    ldk.status === 'error' ? { title: 'Lightning node error', msg: ldk.error.message } :
+    onchain.status === 'error' ? { title: 'Wallet error', msg: onchain.error.message } :
+    null
 
-  if (onchain.status === 'error') {
+  if (gatewayError) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center bg-dark px-6">
-        <p className="text-lg font-semibold text-on-dark">Wallet error</p>
-        <p className="mt-2 text-sm text-red-400">{onchain.error.message}</p>
+        <p className="text-lg font-semibold text-on-dark">{gatewayError.title}</p>
+        <p className="mt-2 text-sm text-red-400">{gatewayError.msg}</p>
         <button
           className="mt-6 text-sm text-accent"
           onClick={() => void navigate('/settings/advanced')}
@@ -233,16 +226,6 @@ export function OpenChannel() {
         >
           Try Again
         </button>
-      </div>
-    )
-  }
-
-  // --- Opening screen ---
-  if (currentStep.step === 'opening') {
-    return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-dark">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-        <p className="text-[var(--color-on-dark-muted)]">Opening channel...</p>
       </div>
     )
   }
