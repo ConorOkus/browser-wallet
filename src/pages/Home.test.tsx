@@ -28,6 +28,8 @@ function readyLdk(): LdkContextValue {
     error: null,
     syncStatus: 'synced',
     connectToPeer: async () => {},
+    forgetPeer: async () => {},
+    createChannel: () => true,
     setBdkWallet: () => {},
   }
 }

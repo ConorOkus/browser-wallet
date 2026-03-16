@@ -30,6 +30,37 @@ export function LdkProvider({
     []
   )
 
+  const createChannel = useCallback(
+    (counterpartyPubkey: Uint8Array, channelValueSats: bigint): boolean => {
+      if (!nodeRef.current) throw new Error('Node not initialized')
+      const bytes = new Uint8Array(16)
+      crypto.getRandomValues(bytes)
+      const userChannelId = bytes.reduce(
+        (acc, byte) => (acc << 8n) | BigInt(byte),
+        0n,
+      )
+      const result = nodeRef.current.channelManager.create_channel(
+        counterpartyPubkey,
+        channelValueSats,
+        0n, // push_msat
+        userChannelId,
+        null, // temporary_channel_id — let LDK generate
+        null, // override_config — use defaults
+      )
+      if (!result.is_ok()) {
+        console.error('[ldk] create_channel failed:', result)
+        return false
+      }
+      console.log(
+        '[ldk] create_channel succeeded for',
+        channelValueSats.toString(),
+        'sats',
+      )
+      return true
+    },
+    [],
+  )
+
   const forgetPeer = useCallback(async (pubkey: string): Promise<void> => {
     const node = nodeRef.current
     if (!node) throw new Error('Node not initialized')
@@ -113,6 +144,7 @@ export function LdkProvider({
           syncStatus: 'syncing',
           connectToPeer,
           forgetPeer,
+          createChannel,
           setBdkWallet,
         })
 
@@ -151,7 +183,7 @@ export function LdkProvider({
       if (peerTimerId !== null) clearInterval(peerTimerId)
       nodeRef.current = null
     }
-  }, [connectToPeer, forgetPeer, ldkSeed])
+  }, [connectToPeer, forgetPeer, createChannel, ldkSeed])
 
   return <LdkContext value={state}>{children}</LdkContext>
 }
