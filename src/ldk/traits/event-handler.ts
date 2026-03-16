@@ -297,30 +297,9 @@ function handleEvent(
 
   if (event instanceof Event_FundingTxBroadcastSafe) {
     const tempChannelIdHex = bytesToHex(event.former_temporary_channel_id.write())
-
-    // Read funding tx from IDB (persisted in FundingGenerationReady, survives reloads)
-    void idbGet<string>('ldk_funding_txs', tempChannelIdHex)
-      .then((txHex) => {
-        if (!txHex) {
-          console.warn(
-            '[LDK Event] FundingTxBroadcastSafe: no persisted tx for',
-            tempChannelIdHex.substring(0, 16) + '...',
-          )
-          return
-        }
-        return broadcastTransaction(txHex, ONCHAIN_CONFIG.esploraUrl)
-          .then((txid) => {
-            // Clean up the persisted tx after successful broadcast
-            void idbDelete('ldk_funding_txs', tempChannelIdHex).catch(() => {})
-            console.log('[LDK Event] FundingTxBroadcastSafe: broadcast tx:', txid)
-          })
-      })
-      .catch((err: unknown) => {
-        console.error(
-          '[LDK Event] FundingTxBroadcastSafe: broadcast failed:',
-          err,
-        )
-      })
+    void broadcastPersistedFundingTx(tempChannelIdHex).catch((err: unknown) => {
+      console.error('[LDK Event] FundingTxBroadcastSafe: broadcast failed:', err)
+    })
     return
   }
 
@@ -333,9 +312,11 @@ function handleEvent(
   }
 
   if (event instanceof Event_DiscardFunding) {
-    // DiscardFunding provides channel_id (final, not temporary) so we cannot
-    // directly look up the cached tx. The leaked cache entry is acceptable for
-    // this temporary workaround — it's cleaned up on tab refresh.
+    // DiscardFunding provides channel_id (final, not temporary), so we cannot
+    // directly look up the persisted funding tx by temporary_channel_id.
+    // Orphaned entries in ldk_funding_txs are small (a few hundred bytes each)
+    // and will accumulate slowly. This is acceptable for now.
+    // TODO: Store a temp→final channel ID mapping in ChannelPending to enable cleanup.
     console.log(
       '[LDK Event] DiscardFunding:',
       bytesToHex(event.channel_id.write()).substring(0, 16) + '...',
@@ -353,6 +334,20 @@ function handleEvent(
 
   // Catch-all for unhandled event types (future LDK versions may add new events)
   console.log('[LDK Event] Unhandled event type:', event.constructor.name)
+}
+
+async function broadcastPersistedFundingTx(tempChannelIdHex: string): Promise<void> {
+  const txHex = await idbGet<string>('ldk_funding_txs', tempChannelIdHex)
+  if (!txHex) {
+    console.warn(
+      '[LDK Event] FundingTxBroadcastSafe: no persisted tx for',
+      tempChannelIdHex.substring(0, 16) + '...',
+    )
+    return
+  }
+  const txid = await broadcastTransaction(txHex, ONCHAIN_CONFIG.esploraUrl)
+  void idbDelete('ldk_funding_txs', tempChannelIdHex).catch(() => {})
+  console.log('[LDK Event] FundingTxBroadcastSafe: broadcast tx:', txid)
 }
 
 function describePaymentFailure(reason: PaymentFailureReason): string {
