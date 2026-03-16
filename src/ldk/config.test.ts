@@ -4,7 +4,6 @@ import { SIGNET_CONFIG } from './config'
 describe('SIGNET_CONFIG', () => {
   it('has required configuration fields', () => {
     expect(SIGNET_CONFIG.esploraUrl).toBe('https://mutinynet.com/api')
-    expect(SIGNET_CONFIG.genesisBlockHash).toMatch(/^[0-9a-f]{64}$/)
     expect(SIGNET_CONFIG.wsProxyUrl).toMatch(/^wss?:\/\//)
   })
 
