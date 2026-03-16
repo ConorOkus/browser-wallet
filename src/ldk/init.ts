@@ -16,6 +16,7 @@ import {
   MultiThreadedLockableScore,
   DefaultRouter,
   DefaultMessageRouter,
+  OnionMessenger,
   UtilMethods,
   Result_C2Tuple_ThirtyTwoBytesChannelMonitorZDecodeErrorZ_OK,
   Result_C2Tuple_ThirtyTwoBytesChannelManagerZDecodeErrorZ_OK,
@@ -54,6 +55,7 @@ export interface LdkNode {
   networkGraph: NetworkGraph
   scorer: ProbabilisticScorer
   peerManager: PeerManager
+  onionMessenger: OnionMessenger
   eventHandler: EventHandler
 }
 
@@ -270,12 +272,25 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     )
   }
 
-  // 10. Create PeerManager
+  // 10. Create OnionMessenger (required for BOLT 12 offers and BIP 353)
   const ignorer = IgnoringMessageHandler.constructor_new()
+  const onionMessenger = OnionMessenger.constructor_new(
+    keysManager.as_EntropySource(),
+    keysManager.as_NodeSigner(),
+    logger,
+    channelManager.as_NodeIdLookUp(),
+    messageRouter.as_MessageRouter(),
+    channelManager.as_OffersMessageHandler(),
+    channelManager.as_AsyncPaymentsMessageHandler(),
+    channelManager.as_DNSResolverMessageHandler(),
+    ignorer.as_CustomOnionMessageHandler()
+  )
+
+  // 11. Create PeerManager
   const peerManager = PeerManager.constructor_new(
     channelManager.as_ChannelMessageHandler(),
     ignorer.as_RoutingMessageHandler(),
-    ignorer.as_OnionMessageHandler(),
+    onionMessenger.as_OnionMessageHandler(),
     ignorer.as_CustomMessageHandler(),
     Math.floor(Date.now() / 1000),
     keysManager.as_EntropySource().get_secure_random_bytes(),
@@ -283,7 +298,7 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     keysManager.as_NodeSigner()
   )
 
-  // 11. Derive node public key
+  // 12. Derive node public key
   const nodeIdResult = keysManager.as_NodeSigner().get_node_id(Recipient.LDKRecipient_Node)
   if (!nodeIdResult.is_ok()) {
     throw new Error('Failed to derive node ID from KeysManager')
@@ -293,7 +308,7 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   }
   const nodeId = bytesToHex(nodeIdResult.res)
 
-  // 12. Create EventHandler
+  // 13. Create EventHandler
   const { handler: eventHandler, cleanup: cleanupEventHandler, setBdkWallet } =
     createEventHandler(channelManager)
 
@@ -309,6 +324,7 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     networkGraph,
     scorer,
     peerManager,
+    onionMessenger,
     eventHandler,
   }
 

@@ -113,11 +113,14 @@ export function LdkProvider({
           node.peerManager.timer_tick_occurred()
           node.peerManager.process_events()
 
-          // Drain LDK events from both ChannelManager and ChainMonitor
+          // Drain LDK events from ChannelManager, ChainMonitor, and OnionMessenger
           node.channelManager
             .as_EventsProvider()
             .process_pending_events(node.eventHandler)
           node.chainMonitor
+            .as_EventsProvider()
+            .process_pending_events(node.eventHandler)
+          node.onionMessenger
             .as_EventsProvider()
             .process_pending_events(node.eventHandler)
 
