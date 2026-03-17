@@ -6,6 +6,7 @@ export interface OnchainSyncHandle {
   stop: () => void
   pause: () => void
   resume: () => void
+  syncNow: () => void
 }
 
 export interface OnchainBalance {
@@ -22,6 +23,8 @@ export function startOnchainSyncLoop(
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   let stopped = false
   let paused = false
+  let syncRequested = false
+  let retriesRemaining = 0
 
   function readBalance(): OnchainBalance {
     const b = wallet.balance
@@ -32,10 +35,13 @@ export function startOnchainSyncLoop(
     }
   }
 
+  const SYNC_NOW_RETRIES = 3
+  const SYNC_NOW_RETRY_MS = 3_000
+
   async function tick() {
     if (stopped) return
     if (paused) {
-      timeoutId = setTimeout(() => void tick(), ONCHAIN_CONFIG.syncIntervalMs)
+      scheduleNext()
       return
     }
     try {
@@ -61,7 +67,16 @@ export function startOnchainSyncLoop(
       console.warn('[BDK Sync] Sync tick failed:', err)
     }
 
-    if (!stopped) {
+    scheduleNext()
+  }
+
+  function scheduleNext() {
+    if (stopped) return
+    // If retries remain from a syncNow() request, use shorter interval
+    if (retriesRemaining > 0) {
+      retriesRemaining -= 1
+      timeoutId = setTimeout(() => void tick(), SYNC_NOW_RETRY_MS)
+    } else {
       timeoutId = setTimeout(() => void tick(), ONCHAIN_CONFIG.syncIntervalMs)
     }
   }
@@ -83,6 +98,18 @@ export function startOnchainSyncLoop(
     },
     resume() {
       paused = false
+    },
+    syncNow() {
+      if (stopped || syncRequested) return
+      syncRequested = true
+      retriesRemaining = SYNC_NOW_RETRIES
+      // Cancel pending tick and fire immediately
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId)
+        timeoutId = null
+      }
+      syncRequested = false
+      void tick()
     },
   }
 }
