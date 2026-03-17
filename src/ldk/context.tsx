@@ -468,6 +468,7 @@ export function LdkProvider({
                   .filter((pk) => known.has(pk))
                   .map(async (pk) => {
                     const { host, port } = known.get(pk)!
+                    activeConnections.current.get(pk)?.disconnect()
                     const conn = await doConnectToPeer(node.peerManager, pk, host, port)
                     activeConnections.current.set(pk, conn)
                   })

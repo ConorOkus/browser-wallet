@@ -33,6 +33,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     initializeWallet()
       .then(({ ldkSeed, bdkDescriptors }) => {
+        walletInitPromise = null // Allow GC of mnemonic closure
         setState({ status: 'ready', ldkSeed, bdkDescriptors })
       })
       .catch((err: unknown) => {
