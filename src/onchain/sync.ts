@@ -23,7 +23,7 @@ export function startOnchainSyncLoop(
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   let stopped = false
   let paused = false
-  let syncRequested = false
+  let isSyncing = false
   let retriesRemaining = 0
 
   function readBalance(): OnchainBalance {
@@ -39,11 +39,12 @@ export function startOnchainSyncLoop(
   const SYNC_NOW_RETRY_MS = 3_000
 
   async function tick() {
-    if (stopped) return
+    if (stopped || isSyncing) return
     if (paused) {
       scheduleNext()
       return
     }
+    isSyncing = true
     try {
       const syncRequest = wallet.start_sync_with_revealed_spks()
       const update = await esploraClient.sync(
@@ -65,6 +66,8 @@ export function startOnchainSyncLoop(
       onBalanceUpdate(readBalance())
     } catch (err) {
       console.warn('[BDK Sync] Sync tick failed:', err)
+    } finally {
+      isSyncing = false
     }
 
     scheduleNext()
@@ -100,15 +103,13 @@ export function startOnchainSyncLoop(
       paused = false
     },
     syncNow() {
-      if (stopped || syncRequested) return
-      syncRequested = true
+      if (stopped) return
       retriesRemaining = SYNC_NOW_RETRIES
       // Cancel pending tick and fire immediately
       if (timeoutId !== null) {
         clearTimeout(timeoutId)
         timeoutId = null
       }
-      syncRequested = false
       void tick()
     },
   }
