@@ -24,6 +24,7 @@ export async function syncOnce(
   esplora.setSignal(signal)
   try {
     const tipHash = await esplora.getTipHash()
+    console.log('[LDK Sync] Tip:', tipHash.slice(0, 16) + '...')
     if (tipHash === lastSyncTipHash) return tipHash
 
     // 1. Reorg detection: check get_relevant_txids() against chain
@@ -42,20 +43,24 @@ export async function syncOnce(
       }
     }
 
-    // 2. Update best block
-    const tipHeight = await esplora.getTipHeight()
+    // 2. Update best block — derive height from tipHash (not separate API call)
+    //    to guarantee hash and height are consistent
+    const tipHeight = await esplora.getBlockHeight(tipHash)
     const tipHeader = await esplora.getBlockHeader(tipHash)
     for (const confirmable of confirmables) {
       confirmable.best_block_updated(tipHeader, tipHeight)
     }
+    console.log('[LDK Sync] best_block_updated height:', tipHeight)
 
     // 3. Check watched txids for new confirmations (parallel)
     const txidEntries = [...watchState.watchedTxids.entries()]
+    console.log('[LDK Sync] Checking', txidEntries.length, 'watched txids:', txidEntries.map(([k]) => k.slice(0, 16) + '...'))
     if (txidEntries.length > 0) {
       const txResults = await Promise.allSettled(
         txidEntries.map(async ([txidHex]) => {
           const status = await esplora.getTxStatus(txidHex)
           if (status.confirmed && status.block_hash && status.block_height != null) {
+            console.log('[LDK Sync] Tx', txidHex.slice(0, 16) + '...', 'confirmed at height', status.block_height)
             const header = await esplora.getBlockHeader(status.block_hash)
             const rawTx = await esplora.getTxHex(txidHex)
             const proof = await esplora.getTxMerkleProof(txidHex)
@@ -63,12 +68,17 @@ export async function syncOnce(
             for (const confirmable of confirmables) {
               confirmable.transactions_confirmed(header, txdata, status.block_height)
             }
+          } else {
+            console.log('[LDK Sync] Tx', txidHex.slice(0, 16) + '...', 'not yet confirmed')
           }
         })
       )
       const failedTxChecks = txResults.filter((r) => r.status === 'rejected')
       if (failedTxChecks.length > 0) {
         console.warn(`[LDK Sync] ${failedTxChecks.length}/${txidEntries.length} txid checks failed`)
+        for (const r of failedTxChecks) {
+          if (r.status === 'rejected') console.error('[LDK Sync] Tx check error:', r.reason)
+        }
       }
     }
 
@@ -106,6 +116,9 @@ export async function syncOnce(
       const failedOutputChecks = outputResults.filter((r) => r.status === 'rejected')
       if (failedOutputChecks.length > 0) {
         console.warn(`[LDK Sync] ${failedOutputChecks.length}/${outputEntries.length} output checks failed`)
+        for (const r of failedOutputChecks) {
+          if (r.status === 'rejected') console.error('[LDK Sync] Output check error:', r.reason)
+        }
       }
     }
 

@@ -55,6 +55,11 @@ export class EsploraClient {
     return hexToBytes(hex)
   }
 
+  async getBlockHeight(hash: string): Promise<number> {
+    const status = await this.getBlockStatus(hash)
+    return status.height
+  }
+
   async getBlockStatus(hash: string): Promise<BlockStatus> {
     assertHex(hash, 'blockHash')
     const res = await fetch(`${this.baseUrl}/block/${hash}/status`, { signal: this.getSignal() })
