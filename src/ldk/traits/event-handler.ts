@@ -367,7 +367,7 @@ function handleEvent(
         const apiErr = result instanceof Result_NoneAPIErrorZ_Err ? result.err : null
         console.error(
           '[LDK Event] FundingGenerationReady: funding_transaction_generated failed:',
-          apiErr?.err ?? 'unknown error',
+          apiErr ?? 'unknown error',
         )
         return
       }
