@@ -239,12 +239,12 @@ Consolidate CM persist paths and add VSS writes.
 
 **Tasks:**
 
-- [ ] Create `src/ldk/storage/persist-cm.ts` with `persistChannelManager(cm, vssClient?)` function
-- [ ] Refactor `src/ldk/sync/chain-sync.ts:225` to call `persistChannelManager()`
-- [ ] Refactor `src/ldk/context.tsx:542` (event timer) to call `persistChannelManager()`
-- [ ] Keep `src/ldk/context.tsx:661` (visibility handler) as IDB-only — browser may kill tab before network request completes
-- [ ] ChannelManager uses a single VSS key: `"channel_manager"` (obfuscated by VssClient)
-- [ ] Track CM version in memory, same pattern as monitors
+- [x] Create `src/ldk/storage/persist-cm.ts` with `persistChannelManager(cm, vssClient?)` function
+- [x] Refactor `src/ldk/sync/chain-sync.ts:225` to call `persistChannelManager()`
+- [x] Refactor `src/ldk/context.tsx:542` (event timer) to call `persistChannelManager()`
+- [x] Keep `src/ldk/context.tsx:661` (visibility handler) as IDB-only — browser may kill tab before network request completes
+- [x] ChannelManager uses a single VSS key: `"channel_manager"` (obfuscated by VssClient)
+- [x] Track CM version in memory, same pattern as monitors
 
 **Success criteria:**
 - [ ] All three CM persist paths go through the consolidated function

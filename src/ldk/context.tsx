@@ -21,6 +21,7 @@ import { EsploraClient } from './sync/esplora-client'
 import { startSyncLoop } from './sync/chain-sync'
 import { connectToPeer as doConnectToPeer, type PeerConnection } from './peers/peer-connection'
 import { idbPut } from './storage/idb'
+import { persistChannelManager, persistChannelManagerIdbOnly } from './storage/persist-cm'
 import { getKnownPeers, putKnownPeer, deleteKnownPeer } from './storage/known-peers'
 import { persistPayment, loadAllPayments } from './storage/payment-history'
 import { bytesToHex } from './utils'
@@ -538,8 +539,7 @@ export function LdkProvider({
 
           // Flush ChannelManager state immediately after processing events
           if (node.channelManager.get_and_clear_needs_persistence()) {
-            const data = node.channelManager.write()
-            void idbPut('ldk_channel_manager', 'primary', data).catch(
+            void persistChannelManager(node.channelManager).catch(
               (err: unknown) => {
                 console.error(
                   '[LDK Context] Failed to persist ChannelManager after events:',
@@ -659,7 +659,7 @@ export function LdkProvider({
       if (document.visibilityState === 'hidden' && nodeRef.current) {
         const { channelManager, networkGraph, scorer } = nodeRef.current
         void Promise.all([
-          idbPut('ldk_channel_manager', 'primary', channelManager.write()),
+          persistChannelManagerIdbOnly(channelManager),
           idbPut('ldk_network_graph', 'primary', networkGraph.write()),
           idbPut('ldk_scorer', 'primary', scorer.write()),
         ]).catch((err: unknown) =>
