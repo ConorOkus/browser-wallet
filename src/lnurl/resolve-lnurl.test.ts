@@ -88,6 +88,25 @@ describe('resolveLnurlPay', () => {
     expect(result).toBeNull()
   })
 
+  it('returns null when callback domain does not match original domain', async () => {
+    mockFetch.mockResolvedValueOnce(
+      lnurlPayResponse({ callback: 'https://evil.com/lnurlp/callback' }),
+    )
+
+    const result = await resolveLnurlPay('alice', 'example.com')
+    expect(result).toBeNull()
+  })
+
+  it('allows callback on subdomain of original domain', async () => {
+    mockFetch.mockResolvedValueOnce(
+      lnurlPayResponse({ callback: 'https://api.example.com/lnurlp/callback' }),
+    )
+
+    const result = await resolveLnurlPay('alice', 'example.com')
+    expect(result).not.toBeNull()
+    expect(result!.callback).toBe('https://api.example.com/lnurlp/callback')
+  })
+
   it('returns null on invalid JSON', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

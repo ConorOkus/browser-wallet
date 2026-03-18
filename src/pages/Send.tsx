@@ -8,6 +8,7 @@ import { resolveBip353 } from '../ldk/resolve-bip353'
 import { resolveLnurlPay, fetchLnurlInvoice } from '../lnurl/resolve-lnurl'
 import { ONCHAIN_CONFIG } from '../onchain/config'
 import { formatBtc } from '../utils/format-btc'
+import { msatToSatCeil, msatToSatFloor } from '../utils/msat'
 import { bytesToHex } from '../ldk/utils'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { Numpad, type NumpadKey } from '../components/Numpad'
@@ -79,10 +80,8 @@ function classifyEstimateError(err: unknown): string {
   return msg
 }
 
-/** Convert millisatoshis to satoshis, rounding up. */
-function msatToSat(msat: bigint): bigint {
-  return (msat + 999n) / 1000n
-}
+/** Convert millisatoshis to satoshis, rounding up. Alias for display calculations. */
+const msatToSat = msatToSatCeil
 
 /** Get a display label for a Lightning payment recipient. */
 function recipientLabel(parsed: ParsedPaymentInput & { type: 'bolt11' | 'bolt12' }, label?: string): string {
@@ -188,8 +187,10 @@ export function Send() {
       clearTimeout(timeoutId)
 
       if (lnurlResult) {
-        const minSat = msatToSat(lnurlResult.minSendableMsat)
-        const maxSat = lnurlResult.maxSendableMsat / 1000n
+        // Round min up (ceil) so we never send less than the server requires;
+        // round max down (floor) so we never exceed the server's limit
+        const minSat = msatToSatCeil(lnurlResult.minSendableMsat)
+        const maxSat = msatToSatFloor(lnurlResult.maxSendableMsat)
 
         // If min === max, it's a fixed-amount LNURL — skip numpad
         if (minSat === maxSat) {
@@ -220,13 +221,7 @@ export function Send() {
   // Route a resolved ParsedPaymentInput to the appropriate review/amount step
   const routeResolvedInput = useCallback((parsed: ParsedPaymentInput, label: string) => {
     if (parsed.type === 'onchain') {
-      if (parsed.amountSats !== null) {
-        // Has embedded amount — go to on-chain review (need fee estimate)
-        // For simplicity, route to amount step to let existing flow handle it
-        setSendStep({ step: 'amount', parsedInput: parsed, rawInput: label })
-      } else {
-        setSendStep({ step: 'amount', parsedInput: parsed, rawInput: label })
-      }
+      setSendStep({ step: 'amount', parsedInput: parsed, rawInput: label })
       return
     }
 
@@ -252,7 +247,12 @@ export function Send() {
       const invoiceStr = await fetchLnurlInvoice(callback, amountMsat, controller?.signal)
       const parsed = classifyPaymentInput(invoiceStr)
       if (parsed.type === 'bolt11') {
-        setSendStep({ step: 'ln-review', parsed, amountMsat, fromStep: 'amount', label })
+        // Verify invoice amount matches what we requested
+        if (parsed.amountMsat !== null && parsed.amountMsat !== amountMsat) {
+          setSendStep({ step: 'error', message: 'Invoice amount does not match requested amount', retryStep: null })
+          return
+        }
+        setSendStep({ step: 'ln-review', parsed, amountMsat: parsed.amountMsat ?? amountMsat, fromStep: 'amount', label })
       } else {
         setSendStep({ step: 'error', message: 'Invalid invoice from Lightning Address provider', retryStep: null })
       }

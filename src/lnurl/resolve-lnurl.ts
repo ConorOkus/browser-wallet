@@ -50,9 +50,15 @@ export async function resolveLnurlPay(
   if (data.tag !== 'payRequest') return null
   if (!data.callback || !data.minSendable || !data.maxSendable) return null
 
-  // Validate callback is HTTPS
+  // Validate callback is HTTPS and domain matches the original LNURL domain
   const callback = data.callback
   if (!callback.startsWith('https://')) return null
+  try {
+    const callbackHost = new URL(callback).hostname
+    if (callbackHost !== domain && !callbackHost.endsWith('.' + domain)) return null
+  } catch {
+    return null
+  }
 
   let description: string
   try {

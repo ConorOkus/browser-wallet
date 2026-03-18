@@ -139,6 +139,22 @@ describe('resolveBip353', () => {
     )
   })
 
+  it('handles multi-segment TXT records (>255 bytes)', async () => {
+    // DNS TXT records longer than 255 bytes are split into multiple quoted segments
+    const addr = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
+    mockFetch.mockResolvedValueOnce(
+      dohResponse({
+        Answer: [
+          { type: 16, data: `"bitcoin:${addr}?amount=" "0.001"` },
+        ],
+      }),
+    )
+
+    const result = await resolveBip353('alice', 'example.com')
+    expect(result).not.toBeNull()
+    expect(result!.type).toBe('onchain')
+  })
+
   it('skips bitcoin: TXT records that produce parse errors', async () => {
     mockFetch.mockResolvedValueOnce(
       dohResponse({

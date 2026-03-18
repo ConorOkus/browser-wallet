@@ -52,8 +52,9 @@ export async function resolveBip353(
   // Find bitcoin: TXT record (type 16 = TXT)
   const txtRecords = data.Answer?.filter((r) => r.type === 16) ?? []
   for (const record of txtRecords) {
-    // TXT record data is quoted in DoH JSON responses
-    const txt = record.data.replace(/^"|"$/g, '')
+    // TXT record data is quoted in DoH JSON responses; records >255 bytes are
+    // split into multiple quoted segments (e.g., "part1" "part2")
+    const txt = record.data.replace(/^"|"$/g, '').replace(/" "/g, '')
     if (txt.startsWith('bitcoin:')) {
       const parsed = classifyPaymentInput(txt)
       if (parsed.type !== 'error') return parsed
