@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useLocation } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
 import { useUnifiedBalance } from '../hooks/use-unified-balance'
@@ -96,6 +96,7 @@ function typeBadge(parsed: ParsedPaymentInput & { type: 'bolt11' | 'bolt12' | 'b
 
 export function Send() {
   const navigate = useNavigate()
+  const location = useLocation()
   const onchain = useOnchain()
   const ldk = useLdk()
   const unified = useUnifiedBalance()
@@ -104,6 +105,7 @@ export function Send() {
   const [amountDigits, setAmountDigits] = useState('')
   const [inputError, setInputError] = useState<string | null>(null)
   const [isSendMax, setIsSendMax] = useState(false)
+  const [scannedInput, setScannedInput] = useState<string | null>(null)
   const sendingRef = useRef(false)
   const processingRef = useRef(false)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -120,6 +122,39 @@ export function Send() {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current)
     }
   }, [])
+
+  // Consume scanned input from location.state (set by /scan route)
+  useEffect(() => {
+    const state = location.state as { scannedInput?: string } | null
+    if (!state?.scannedInput) return
+
+    const raw = state.scannedInput
+    // Clear location.state to prevent re-processing on back/forward
+    void navigate('/send', { replace: true, state: null })
+
+    const parsed = classifyPaymentInput(raw)
+
+    // If it has an embedded amount, auto-process the full input
+    if (parsed.type === 'onchain' && parsed.amountSats !== null) {
+      setAmountDigits(parsed.amountSats.toString())
+      setInputValue(raw)
+      // Defer processRecipientInput until next tick so state is settled
+      setTimeout(() => void processRecipientInput(raw), 0)
+      return
+    }
+    if ((parsed.type === 'bolt11' || parsed.type === 'bolt12') && parsed.amountMsat !== null) {
+      const sats = (parsed.amountMsat + 999n) / 1000n
+      setAmountDigits(sats.toString())
+      setInputValue(raw)
+      setTimeout(() => void processRecipientInput(raw), 0)
+      return
+    }
+
+    // No amount — start at amount step with recipient pre-filled
+    if (parsed.type !== 'error') {
+      setScannedInput(raw)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Numpad handlers ---
   const handleNumpadKey = useCallback((key: NumpadKey) => {
@@ -142,12 +177,6 @@ export function Send() {
     setAmountDigits(unified.total.toString())
     setIsSendMax(true)
   }, [unified.total])
-
-  // --- Amount screen: Next ---
-  const handleAmountNext = useCallback(() => {
-    if (amountSats <= 0n) return
-    setSendStep({ step: 'recipient' })
-  }, [amountSats])
 
   // --- Recipient: process input (shared by paste and Next button) ---
   const processRecipientInput = useCallback(async (value: string) => {
@@ -242,6 +271,17 @@ export function Send() {
       processingRef.current = false
     }
   }, [amountSats, isSendMax, onchain, onchainBalance, lnCapacityMsat])
+
+  // --- Amount screen: Next ---
+  const handleAmountNext = useCallback(() => {
+    if (amountSats <= 0n) return
+    // If recipient was pre-filled by QR scan, skip to processing
+    if (scannedInput) {
+      void processRecipientInput(scannedInput)
+      return
+    }
+    setSendStep({ step: 'recipient' })
+  }, [amountSats, scannedInput, processRecipientInput])
 
   // --- Recipient: paste handler ---
   const handlePaste = useCallback(
