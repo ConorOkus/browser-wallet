@@ -58,5 +58,12 @@ export default defineConfig({
       'Referrer-Policy': 'no-referrer',
       'Permissions-Policy': 'camera=(self), microphone=(), geolocation=()',
     },
+    proxy: {
+      '/__vss_proxy': {
+        target: process.env.VSS_PROXY_TARGET ?? 'http://localhost:8080',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/__vss_proxy/, ''),
+      },
+    },
   },
 })
