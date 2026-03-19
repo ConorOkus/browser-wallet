@@ -181,6 +181,7 @@ export function Send() {
       }
 
       // Fall back to LNURL-pay with a fresh timeout
+      // resolveLnurlPay returns null if no endpoint exists, or throws on validation errors
       const lnurlSignal = AbortSignal.any([controller.signal, AbortSignal.timeout(RESOLVE_TIMEOUT_MS)])
       const lnurlResult = await resolveLnurlPay(user, domain, lnurlSignal)
 
@@ -206,10 +207,11 @@ export function Send() {
         return
       }
 
-      setSendStep({ step: 'error', message: `Could not resolve ${raw}`, retryStep: null })
+      setSendStep({ step: 'error', message: `No Lightning Address or BIP 353 record found for ${raw}`, retryStep: null })
     } catch (err) {
       if (controller.signal.aborted) return
       const message = err instanceof Error ? err.message : String(err)
+      console.warn('[Send] Address resolution failed:', message)
       setSendStep({ step: 'error', message, retryStep: null })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- routeResolvedInput and fetchAndRouteInvoice are stable setState wrappers

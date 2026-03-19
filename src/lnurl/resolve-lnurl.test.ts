@@ -56,13 +56,12 @@ describe('resolveLnurlPay', () => {
     expect(result).toBeNull()
   })
 
-  it('returns null on LNURL error response', async () => {
+  it('throws on LNURL error response', async () => {
     mockFetch.mockResolvedValueOnce(
       lnurlPayResponse({ status: 'ERROR', reason: 'User not found' }),
     )
 
-    const result = await resolveLnurlPay('alice', 'example.com')
-    expect(result).toBeNull()
+    await expect(resolveLnurlPay('alice', 'example.com')).rejects.toThrow('User not found')
   })
 
   it('returns null on wrong tag', async () => {
@@ -79,22 +78,20 @@ describe('resolveLnurlPay', () => {
     expect(result).toBeNull()
   })
 
-  it('returns null when callback is not HTTPS', async () => {
+  it('throws when callback is not HTTPS', async () => {
     mockFetch.mockResolvedValueOnce(
       lnurlPayResponse({ callback: 'http://example.com/callback' }),
     )
 
-    const result = await resolveLnurlPay('alice', 'example.com')
-    expect(result).toBeNull()
+    await expect(resolveLnurlPay('alice', 'example.com')).rejects.toThrow('not HTTPS')
   })
 
-  it('returns null when callback domain does not match original domain', async () => {
+  it('throws when callback domain does not match original domain', async () => {
     mockFetch.mockResolvedValueOnce(
       lnurlPayResponse({ callback: 'https://evil.com/lnurlp/callback' }),
     )
 
-    const result = await resolveLnurlPay('alice', 'example.com')
-    expect(result).toBeNull()
+    await expect(resolveLnurlPay('alice', 'example.com')).rejects.toThrow('domain mismatch')
   })
 
   it('allows callback on subdomain of original domain', async () => {
