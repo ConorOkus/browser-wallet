@@ -30,7 +30,7 @@ export type LdkContextValue =
       listChannels: () => ChannelDetails[]
       setBdkWallet: (wallet: Wallet | null) => void
       setSyncNeeded: (cb: SyncNeededCallback | undefined) => void
-      createInvoice: (description?: string) => string
+      createInvoice: (amountMsat?: bigint, description?: string) => string
       sendBolt11Payment: (invoice: Bolt11Invoice, amountMsat?: bigint) => Uint8Array
       sendBolt12Payment: (offer: Offer, amountMsat?: bigint, payerNote?: string) => Uint8Array
 

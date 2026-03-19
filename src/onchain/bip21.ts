@@ -14,6 +14,13 @@ function btcStringToSats(btcStr: string): bigint | null {
   return BigInt(whole) * 100_000_000n + BigInt(padded)
 }
 
+/** Convert satoshis to a BTC-denominated string with 8 decimal places. */
+export function satsToBtcString(sats: bigint): string {
+  const whole = sats / 100_000_000n
+  const frac = (sats % 100_000_000n).toString().padStart(8, '0')
+  return `${whole}.${frac}`
+}
+
 export function parseBip21(input: string): Bip21ParseResult | null {
   if (!input.toLowerCase().startsWith('bitcoin:')) return null
 
