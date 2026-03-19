@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseBip21 } from './bip21'
+import { parseBip21, satsToBtcString } from './bip21'
 
 describe('parseBip21', () => {
   it('returns null for plain addresses', () => {
@@ -78,5 +78,34 @@ describe('parseBip21', () => {
       address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
       amountSats: undefined,
     })
+  })
+})
+
+describe('satsToBtcString', () => {
+  it('converts zero sats', () => {
+    expect(satsToBtcString(0n)).toBe('0.00000000')
+  })
+
+  it('converts 1 sat', () => {
+    expect(satsToBtcString(1n)).toBe('0.00000001')
+  })
+
+  it('converts 50000 sats (0.0005 BTC)', () => {
+    expect(satsToBtcString(50000n)).toBe('0.00050000')
+  })
+
+  it('converts 1 BTC', () => {
+    expect(satsToBtcString(100_000_000n)).toBe('1.00000000')
+  })
+
+  it('converts large amount without precision loss', () => {
+    expect(satsToBtcString(2_100_000_000_000_001n)).toBe('21000000.00000001')
+  })
+
+  it('round-trips with parseBip21', () => {
+    const sats = 123456n
+    const btcStr = satsToBtcString(sats)
+    const parsed = parseBip21(`bitcoin:tb1qtest?amount=${btcStr}`)
+    expect(parsed?.amountSats).toBe(sats)
   })
 })

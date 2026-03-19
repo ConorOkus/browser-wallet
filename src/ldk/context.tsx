@@ -176,13 +176,17 @@ export function LdkProvider({
   }
 
   const createInvoice = useCallback(
-    (description = 'Zinq Wallet'): string => {
+    (amountMsat?: bigint, description = 'Zinq Wallet'): string => {
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
 
+      const amountOption = amountMsat != null
+        ? Option_u64Z.constructor_some(amountMsat)
+        : Option_u64Z_None.constructor_none()
+
       const result = UtilMethods.constructor_create_invoice_from_channelmanager(
         node.channelManager,
-        Option_u64Z_None.constructor_none(),
+        amountOption,
         description,
         3600, // 1 hour expiry
         Option_u16Z_None.constructor_none(),

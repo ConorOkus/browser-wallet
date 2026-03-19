@@ -6,9 +6,10 @@ interface NumpadProps {
   onKey: (key: NumpadKey) => void
   onNext: () => void
   nextDisabled: boolean
+  nextLabel?: string
 }
 
-export function Numpad({ onKey, onNext, nextDisabled }: NumpadProps) {
+export function Numpad({ onKey, onNext, nextDisabled, nextLabel = 'Next' }: NumpadProps) {
   return (
     <div className="rounded-t-2xl bg-dark-elevated px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
       <button
@@ -16,7 +17,7 @@ export function Numpad({ onKey, onNext, nextDisabled }: NumpadProps) {
         onClick={onNext}
         disabled={nextDisabled}
       >
-        Next
+        {nextLabel}
         <ArrowRight className="h-5 w-5" />
       </button>
 
