@@ -34,9 +34,7 @@ export async function reconnectDisconnectedPeers(
   const disconnected = [...channelPeerPubkeys].filter((pk) => !connectedPubkeys.has(pk))
   if (disconnected.length === 0) return { succeeded: 0, failed: 0 }
 
-  console.log(
-    `[ldk] ${disconnected.length} channel peer(s) disconnected, attempting reconnect`
-  )
+  console.log(`[ldk] ${disconnected.length} channel peer(s) disconnected, attempting reconnect`)
 
   const known = await getKnownPeers()
   const results = await Promise.allSettled(
