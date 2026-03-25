@@ -468,7 +468,6 @@ export function LdkProvider({
           // Drain LDK events and refresh UI state. Called from both the 10s
           // timer and the per-message WebSocket callback so the UI updates
           // immediately when channel state changes (e.g., channel_ready).
-          drainEventsRef.current = drainEventsAndRefresh
           function drainEventsAndRefresh() {
             node.channelManager.as_EventsProvider().process_pending_events(node.eventHandler)
             node.chainMonitor.as_EventsProvider().process_pending_events(node.eventHandler)
@@ -513,6 +512,18 @@ export function LdkProvider({
                 }
               )
             }
+          }
+
+          // Coalesce rapid WebSocket messages into a single drain per
+          // microtask to avoid excessive recomputation from chatty peers.
+          let drainScheduled = false
+          drainEventsRef.current = () => {
+            if (drainScheduled) return
+            drainScheduled = true
+            queueMicrotask(() => {
+              drainScheduled = false
+              drainEventsAndRefresh()
+            })
           }
 
           // PeerManager timer + LDK event processing every ~10s
@@ -642,7 +653,13 @@ export function LdkProvider({
               console.log(`[ldk] reconnecting to ${peers.size} known peer(s)`)
               const results = await Promise.allSettled(
                 Array.from(peers.entries()).map(async ([pubkey, { host, port }]) => {
-                  const conn = await doConnectToPeer(node.peerManager, pubkey, host, port)
+                  const conn = await doConnectToPeer(
+                    node.peerManager,
+                    pubkey,
+                    host,
+                    port,
+                    () => drainEventsRef.current?.()
+                  )
                   activeConnections.current.set(pubkey, conn)
                 })
               )
