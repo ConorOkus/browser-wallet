@@ -63,6 +63,7 @@ import {
 } from './storage/known-peers'
 import { EsploraClient } from './sync/esplora-client'
 import type { VssClient } from './storage/vss-client'
+
 import type { CmPersistContext } from './storage/persist-cm'
 
 export interface LdkNode {
@@ -165,7 +166,10 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     )
   }
 
-  // 2. Initialize KeysManager with current timestamp for ephemeral key uniqueness
+  // 2. Initialize KeysManager with current timestamp for ephemeral key uniqueness.
+  // The timestamp only seeds generate_channel_keys_id for NEW channels.
+  // Existing channels carry their channel_keys_id in serialized data and
+  // re-derive keys from seed + channel_keys_id (timestamp-independent).
   const nowMs = Date.now()
   const startingTimeSecs = BigInt(Math.floor(nowMs / 1000))
   const startingTimeNanos = (nowMs % 1000) * 1_000_000
@@ -357,6 +361,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   const cmBytes = await idbGet<Uint8Array>('ldk_channel_manager', 'primary')
   let channelManager: ChannelManager
 
+  let cmDeserialized = false
   if (cmBytes && cmBytes instanceof Uint8Array) {
     const result = UtilMethods.constructor_C2Tuple_ThirtyTwoBytesChannelManagerZ_read(
       cmBytes,
@@ -373,10 +378,25 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       restoredMonitors
     )
     if (!(result instanceof Result_C2Tuple_ThirtyTwoBytesChannelManagerZDecodeErrorZ_OK)) {
-      throw new Error('[LDK Init] Failed to deserialize ChannelManager')
+      // Defense-in-depth: if deserialization fails (e.g., stale CM from a
+      // previous wallet that survived an IDB clear race), discard and create
+      // fresh rather than crashing. Only safe when there are no monitors.
+      if (restoredMonitors.length === 0) {
+        console.warn(
+          '[LDK Init] ChannelManager deserialization failed with no monitors — ' +
+            'discarding stale CM and creating fresh. This can happen after a wallet restore.'
+        )
+        await idbDelete('ldk_channel_manager', 'primary')
+      } else {
+        throw new Error('[LDK Init] Failed to deserialize ChannelManager')
+      }
+    } else {
+      channelManager = result.res.get_b()
+      cmDeserialized = true
     }
-    channelManager = result.res.get_b()
+  }
 
+  if (cmDeserialized) {
     const restoredChannels = channelManager.list_channels()
     console.log(
       `[LDK Init] Restored ChannelManager from IDB with ${restoredMonitors.length} monitor(s) and ${restoredChannels.length} channel(s)`
@@ -389,7 +409,6 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
           `capacity=${ch.get_channel_value_satoshis()} sats`
       )
     }
-
     // Register restored monitors with ChainMonitor
     const watch = chainMonitor.as_Watch()
     for (const monitor of restoredMonitors) {

@@ -60,6 +60,14 @@ export function LdkProvider({
   const channelChangeCounterRef = useRef(0)
   const lastChannelSnapshotRef = useRef('')
   const activeConnections = useRef<Map<string, PeerConnection>>(new Map())
+  // Mutable ref holding the teardown function for the running LDK node.
+  // Called by the Restore flow to stop all background persistence before clearing IDB.
+  const teardownRef = useRef<(() => void) | null>(null)
+
+  const shutdown = useCallback(() => {
+    console.log('[LDK Context] Shutting down LDK node for restore')
+    teardownRef.current?.()
+  }, [])
 
   const refreshPaymentHistory = useCallback(async () => {
     const all = await loadAllPayments()
@@ -540,6 +548,7 @@ export function LdkProvider({
             paymentHistory: initialPaymentHistory,
             bolt12Offer: null,
             vssStatus: 'ok',
+            shutdown,
           })
 
           // Load or create the BOLT 12 offer after peers reconnect.
@@ -680,7 +689,7 @@ export function LdkProvider({
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     const connections = activeConnections.current
-    return () => {
+    const teardown = () => {
       cancelled = true
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       syncHandle?.stop()
@@ -692,7 +701,10 @@ export function LdkProvider({
       }
       connections.clear()
       nodeRef.current = null
+      teardownRef.current = null
     }
+    teardownRef.current = teardown
+    return teardown
   }, [
     connectToPeer,
     forgetPeer,

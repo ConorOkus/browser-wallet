@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ScreenHeader } from '../components/ScreenHeader'
+import { useLdk } from '../ldk/use-ldk'
 import { validateMnemonic } from '../wallet/mnemonic'
 import { deriveLdkSeed, deriveVssEncryptionKey, deriveVssStoreId } from '../wallet/keys'
 import { VssClient, FixedHeaderProvider } from '../ldk/storage/vss-client'
@@ -15,6 +16,7 @@ type RestoreState =
   | { status: 'error'; message: string }
 
 export function Restore() {
+  const ldk = useLdk()
   const [state, setState] = useState<RestoreState>({ status: 'input' })
   const [words, setWords] = useState<string[]>(Array(12).fill(''))
 
@@ -102,6 +104,14 @@ export function Restore() {
         knownPeers = parseKnownPeers(new TextDecoder().decode(peersObj.value))
       }
 
+      // Stop all LDK background tasks BEFORE clearing IDB.
+      // Without this, the running LDK node's persist loop and visibilitychange
+      // handler would overwrite the restored data with the old ChannelManager.
+      setState({ status: 'restoring', message: 'Stopping wallet...' })
+      if (ldk.status === 'ready') {
+        ldk.shutdown()
+      }
+
       setState({ status: 'restoring', message: 'Clearing local data...' })
       await clearAllStores()
 
@@ -134,10 +144,9 @@ export function Restore() {
 
       setState({ status: 'restoring', message: 'Restarting wallet...' })
 
-      // Full page reload — releases Web Lock, clears WASM state, resets initPromise
-      setTimeout(() => {
-        window.location.href = '/'
-      }, 500)
+      // Full page reload — releases Web Lock, clears WASM state, resets initPromise.
+      // No delay needed: LDK background tasks are already stopped by shutdown().
+      window.location.href = '/'
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       setState({ status: 'error', message: `Restore failed: ${message}` })
