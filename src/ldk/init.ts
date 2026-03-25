@@ -359,10 +359,9 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
 
   // 9. Restore or create ChannelManager
   const cmBytes = await idbGet<Uint8Array>('ldk_channel_manager', 'primary')
-  let channelManager: ChannelManager
+  let channelManager: ChannelManager | null = null
 
-  let cmDeserialized = false
-  if (cmBytes && cmBytes instanceof Uint8Array) {
+  if (cmBytes instanceof Uint8Array) {
     const result = UtilMethods.constructor_C2Tuple_ThirtyTwoBytesChannelManagerZ_read(
       cmBytes,
       keysManager.as_EntropySource(),
@@ -377,26 +376,23 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       UserConfig.constructor_default(),
       restoredMonitors
     )
-    if (!(result instanceof Result_C2Tuple_ThirtyTwoBytesChannelManagerZDecodeErrorZ_OK)) {
+    if (result instanceof Result_C2Tuple_ThirtyTwoBytesChannelManagerZDecodeErrorZ_OK) {
+      channelManager = result.res.get_b()
+    } else if (restoredMonitors.length === 0) {
       // Defense-in-depth: if deserialization fails (e.g., stale CM from a
       // previous wallet that survived an IDB clear race), discard and create
       // fresh rather than crashing. Only safe when there are no monitors.
-      if (restoredMonitors.length === 0) {
-        console.warn(
-          '[LDK Init] ChannelManager deserialization failed with no monitors — ' +
-            'discarding stale CM and creating fresh. This can happen after a wallet restore.'
-        )
-        await idbDelete('ldk_channel_manager', 'primary')
-      } else {
-        throw new Error('[LDK Init] Failed to deserialize ChannelManager')
-      }
+      console.warn(
+        '[LDK Init] ChannelManager deserialization failed with no monitors — ' +
+          'discarding stale CM and creating fresh. This can happen after a wallet restore.'
+      )
+      await idbDelete('ldk_channel_manager', 'primary')
     } else {
-      channelManager = result.res.get_b()
-      cmDeserialized = true
+      throw new Error('[LDK Init] Failed to deserialize ChannelManager')
     }
   }
 
-  if (cmDeserialized) {
+  if (channelManager) {
     const restoredChannels = channelManager.list_channels()
     console.log(
       `[LDK Init] Restored ChannelManager from IDB with ${restoredMonitors.length} monitor(s) and ${restoredChannels.length} channel(s)`

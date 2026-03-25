@@ -20,8 +20,10 @@ async function waitForHomeReady(page: Page) {
 
 /** Wait for LDK to finish initializing by checking console logs. Returns when CM is created/restored. */
 async function waitForLdkInit(page: Page): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const timeout = setTimeout(() => resolve(), 30_000)
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('LDK init did not complete within 30s'))
+    }, 30_000)
 
     page.on('console', (msg) => {
       const text = msg.text()

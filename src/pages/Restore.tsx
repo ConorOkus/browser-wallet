@@ -111,6 +111,10 @@ export function Restore() {
       if (ldk.status === 'ready') {
         ldk.shutdown()
       }
+      // Flush microtasks so in-flight async IDB writes from the old node
+      // settle before we clear. Without this, a persist that was already
+      // awaiting its IDB transaction could land after clearAllStores().
+      await new Promise((r) => setTimeout(r, 0))
 
       setState({ status: 'restoring', message: 'Clearing local data...' })
       await clearAllStores()
