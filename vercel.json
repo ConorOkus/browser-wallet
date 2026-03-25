@@ -3,8 +3,8 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/__vss_proxy/:path*",
-      "destination": "https://vss.mutinynet.com/:path*"
+      "source": "/__vss_proxy/vss/:path*",
+      "destination": "https://vss.mutinynet.com/vss/:path*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
