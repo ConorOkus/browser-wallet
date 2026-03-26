@@ -24,6 +24,15 @@ export function revealNextAddress(wallet: Wallet, tag: string): Uint8Array {
 /**
  * Derive a BDK address index deterministically from a channel_keys_id.
  * Takes the first 4 bytes as big-endian uint32, modulo 10,000.
+ *
+ * The 10,000 cap bounds the index range that reveal_addresses_to must cover.
+ * BDK's full_scan gap limit (default 20) only controls *initial discovery*
+ * scanning — reveal_addresses_to explicitly marks addresses as known regardless
+ * of gap limit. However, a very large index would cause BDK to track many
+ * unused addresses. 10,000 is generous for a personal wallet (collision
+ * probability ~1% at 12 channels, ~50% at 118 via birthday paradox).
+ * Collisions are harmless — both channels route funds to the same
+ * wallet-controlled address — but reduce on-chain privacy.
  */
 function channelKeysIdToIndex(channelKeysId: Uint8Array): number {
   const view = new DataView(channelKeysId.buffer, channelKeysId.byteOffset, channelKeysId.byteLength)

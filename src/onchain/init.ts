@@ -33,8 +33,6 @@ async function createOrRestoreWallet(
   return wallet
 }
 
-// Cached wallet instance shared between eager and full init
-let cachedWallet: Wallet | null = null
 let eagerInitPromise: Promise<BdkWallet> | null = null
 
 /**
@@ -65,61 +63,6 @@ async function doInitializeBdkWalletEager(
   )
 
   const wallet = await createOrRestoreWallet(descriptors, network)
-  cachedWallet = wallet
-
-  return { wallet, esploraClient }
-}
-
-let fullInitPromise: Promise<BdkWallet> | null = null
-
-/**
- * Full BDK wallet initialization: create/restore wallet + full chain scan.
- * Reuses the wallet from initializeBdkWalletEager if it was called first.
- */
-export function initializeBdkWallet(
-  descriptors: { external: string; internal: string },
-  network: Network
-): Promise<BdkWallet> {
-  if (!fullInitPromise) {
-    fullInitPromise = doInitializeBdkWallet(descriptors, network).catch((err) => {
-      fullInitPromise = null
-      throw err
-    })
-  }
-  return fullInitPromise
-}
-
-async function doInitializeBdkWallet(
-  descriptors: { external: string; internal: string },
-  network: Network
-): Promise<BdkWallet> {
-  // Reuse wallet from eager init if available, otherwise create fresh
-  const { wallet, esploraClient } = await initializeBdkWalletEager(descriptors, network)
-
-  // Full scan to discover all addresses including any revealed by LDK
-  try {
-    const fullScanRequest = wallet.start_full_scan()
-    const update = await esploraClient.full_scan(
-      fullScanRequest,
-      ONCHAIN_CONFIG.fullScanGapLimit,
-      ONCHAIN_CONFIG.syncParallelRequests
-    )
-    wallet.apply_update(update)
-    console.log('[BDK Init] Initial full scan complete')
-  } catch (err) {
-    // Non-fatal: wallet is usable but may have stale data
-    console.warn('[BDK Init] Initial sync failed, wallet may have stale data:', err)
-  }
-
-  // Persist any changes from init + sync
-  const staged = wallet.take_staged()
-  if (staged && !staged.is_empty()) {
-    try {
-      await putChangeset(staged.to_json())
-    } catch (err) {
-      console.error('[BDK Init] CRITICAL: failed to persist initial ChangeSet:', err)
-    }
-  }
 
   return { wallet, esploraClient }
 }

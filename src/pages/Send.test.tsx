@@ -443,7 +443,7 @@ describe('Send', () => {
         forgetPeer: vi.fn(),
         createChannel: vi.fn(),
         bdkWallet: {} as never,
-    bdkEsploraClient: {} as never,
+        bdkEsploraClient: {} as never,
         setSyncNeeded: vi.fn(),
         sendBolt11Payment: vi.fn(),
         sendBolt12Payment: vi.fn(),

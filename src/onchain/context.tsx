@@ -79,6 +79,20 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
   const syncHandleRef = useRef<OnchainSyncHandle | null>(null)
   const ldk = useLdk()
 
+  // Hold stable refs to LDK-provided values so the main init effect doesn't
+  // re-run on every LDK state change (sync status, channel counter, etc.).
+  // The bdkWallet and bdkEsploraClient are set once during LDK init and never change.
+  const bdkWalletRef = useRef<Wallet | null>(null)
+  const bdkEsploraRef = useRef<EsploraClient | null>(null)
+  const setSyncNeededRef = useRef<((cb: (() => void) | undefined) => void) | null>(null)
+
+  useEffect(() => {
+    if (ldk.status !== 'ready') return
+    bdkWalletRef.current = ldk.bdkWallet
+    bdkEsploraRef.current = ldk.bdkEsploraClient
+    setSyncNeededRef.current = ldk.setSyncNeeded
+  }, [ldk])
+
   // Stable syncNow callback that delegates to the sync handle.
   // Exposed via context so the LDK layer can trigger immediate BDK sync after channel close.
   const syncNow = useCallback(() => {
@@ -87,14 +101,14 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
 
   // Register syncNow with LDK when both are ready
   useEffect(() => {
-    if (ldk.status !== 'ready') return
+    if (!setSyncNeededRef.current) return
     if (syncHandleRef.current) {
-      ldk.setSyncNeeded(syncNow)
+      setSyncNeededRef.current(syncNow)
     }
     return () => {
-      ldk.setSyncNeeded(undefined)
+      setSyncNeededRef.current?.(undefined)
     }
-  }, [ldk, syncNow])
+  }, [ldk.status, syncNow])
 
   const listTransactions = useCallback(() => {
     const wallet = walletRef.current
@@ -276,12 +290,16 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
     [buildSignBroadcast]
   )
 
+  // Track whether LDK has become ready so the init effect runs once.
+  // Using ldk.status as a dep (not the full ldk object) prevents teardown churn.
+  const ldkReady = ldk.status === 'ready'
+
   useEffect(() => {
-    if (ldk.status !== 'ready') return
+    const wallet = bdkWalletRef.current
+    const esploraClient = bdkEsploraRef.current
+    if (!ldkReady || !wallet || !esploraClient) return
 
     let cancelled = false
-    const wallet = ldk.bdkWallet
-    const esploraClient = ldk.bdkEsploraClient
 
     walletRef.current = wallet
     esploraRef.current = esploraClient
@@ -309,7 +327,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
         syncHandleRef.current = handle
 
         // Register syncNow with LDK now that the sync loop is running
-        ldk.setSyncNeeded(syncNow)
+        setSyncNeededRef.current?.(syncNow)
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -328,7 +346,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       esploraRef.current = null
     }
   }, [
-    ldk,
+    ldkReady,
     listTransactions,
     generateAddress,
     estimateFee,
