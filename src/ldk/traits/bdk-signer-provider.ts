@@ -7,7 +7,7 @@ import {
   ShutdownScript,
 } from 'lightningdevkit'
 import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
-import { revealNextAddress } from '../../onchain/address-utils'
+import { revealNextAddress, peekAddressAtIndex } from '../../onchain/address-utils'
 
 /**
  * Create a custom SignerProvider that delegates to KeysManager for signing
@@ -25,13 +25,26 @@ export function createBdkSignerProvider(keysManager: KeysManager): {
   let bdkWallet: Wallet | null = null
   const defaultProvider = keysManager.as_SignerProvider()
 
-  function getScriptFromBdkWallet(): Uint8Array | null {
+  function getDestinationScript(channelKeysId: Uint8Array): Uint8Array | null {
+    if (!bdkWallet) return null
+    try {
+      return peekAddressAtIndex(bdkWallet, channelKeysId)
+    } catch (err) {
+      console.warn(
+        '[BdkSignerProvider] Failed to get deterministic BDK address, falling back to KeysManager:',
+        err
+      )
+      return null
+    }
+  }
+
+  function getShutdownScript(): Uint8Array | null {
     if (!bdkWallet) return null
     try {
       return revealNextAddress(bdkWallet, 'BdkSignerProvider')
     } catch (err) {
       console.warn(
-        '[BdkSignerProvider] Failed to get BDK address, falling back to KeysManager:',
+        '[BdkSignerProvider] Failed to get BDK shutdown address, falling back to KeysManager:',
         err
       )
       return null
@@ -63,16 +76,16 @@ export function createBdkSignerProvider(keysManager: KeysManager): {
       return defaultProvider.read_chan_signer(reader)
     },
 
-    get_destination_script(_channel_keys_id: Uint8Array) {
-      const script = getScriptFromBdkWallet()
+    get_destination_script(channel_keys_id: Uint8Array) {
+      const script = getDestinationScript(channel_keys_id)
       if (script) {
         return Result_CVec_u8ZNoneZ.constructor_ok(script)
       }
-      return defaultProvider.get_destination_script(_channel_keys_id)
+      return defaultProvider.get_destination_script(channel_keys_id)
     },
 
     get_shutdown_scriptpubkey() {
-      const script = getScriptFromBdkWallet()
+      const script = getShutdownScript()
       if (script) {
         // Validate P2WPKH format: OP_0 (0x00) + PUSH_20 (0x14) + 20-byte pubkey hash = 22 bytes
         if (script.length === 22 && script[0] === 0x00 && script[1] === 0x14) {
