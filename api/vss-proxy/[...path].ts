@@ -4,10 +4,6 @@ import { buffer } from 'node:stream/consumers'
 /** Disable body parser to preserve raw binary protobuf payloads. */
 export const config = { api: { bodyParser: false } }
 
-/**
- * Vercel serverless function that proxies VSS requests.
- * Reads VSS_ORIGIN from server-side env vars (not exposed to browser).
- */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const vssOrigin = process.env.VSS_ORIGIN
   if (!vssOrigin) {
@@ -15,10 +11,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
 
-  const path = (req.query.path as string[])?.join('/') ?? ''
-  const targetUrl = `${vssOrigin}/vss/${path}`
+  // Extract path from URL since req.query.path is not populated
+  const urlPath = (req.url ?? '').split('?')[0]
+  const segments = urlPath.replace(/^\/api\/vss-proxy\/?/, '')
+  const targetUrl = `${vssOrigin}/vss/${segments}`
 
-  // Read raw body as Buffer using Node.js stream consumers API
   const body = await buffer(req)
 
   try {
@@ -34,7 +31,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(upstream.status)
     res.setHeader(
       'Content-Type',
-      upstream.headers.get('content-type') ?? 'application/octet-stream'
+      upstream.headers.get('content-type') ?? 'application/octet-stream',
     )
     res.setHeader('Cache-Control', 'no-store')
     res.send(Buffer.from(await upstream.arrayBuffer()))
