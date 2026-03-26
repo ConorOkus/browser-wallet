@@ -22,8 +22,7 @@ export default async function handler(request: Request) {
     const upstream = await fetch(targetUrl, {
       method: request.method,
       headers: {
-        'Content-Type':
-          request.headers.get('content-type') ?? 'application/octet-stream',
+        'Content-Type': request.headers.get('content-type') ?? 'application/octet-stream',
       },
       body:
         request.method !== 'GET' && request.method !== 'HEAD'
@@ -35,8 +34,7 @@ export default async function handler(request: Request) {
     return new Response(await upstream.arrayBuffer(), {
       status: upstream.status,
       headers: {
-        'Content-Type':
-          upstream.headers.get('content-type') ?? 'application/octet-stream',
+        'Content-Type': upstream.headers.get('content-type') ?? 'application/octet-stream',
         'Cache-Control': 'no-store',
       },
     })
