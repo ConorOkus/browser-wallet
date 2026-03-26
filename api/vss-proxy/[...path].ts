@@ -16,6 +16,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const path = (req.query.path as string[])?.join('/') ?? ''
+
+  // Debug endpoint: POST /api/vss-proxy/debug to see what body we receive
+  if (path === 'debug') {
+    const body = await buffer(req)
+    res.status(200).json({
+      bodyLength: body.length,
+      bodyType: typeof req.body,
+      bodyIsBuffer: Buffer.isBuffer(req.body),
+      rawBodyLength: body.length,
+      contentType: req.headers['content-type'],
+      method: req.method,
+      firstBytes: body.length > 0 ? Array.from(body.slice(0, 20)) : [],
+    })
+    return
+  }
+
   const targetUrl = `${vssOrigin}/vss/${path}`
 
   // Read raw body as Buffer using Node.js stream consumers API
@@ -34,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(upstream.status)
     res.setHeader(
       'Content-Type',
-      upstream.headers.get('content-type') ?? 'application/octet-stream'
+      upstream.headers.get('content-type') ?? 'application/octet-stream',
     )
     res.setHeader('Cache-Control', 'no-store')
     res.send(Buffer.from(await upstream.arrayBuffer()))
