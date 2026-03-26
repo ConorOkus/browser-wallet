@@ -11,7 +11,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // Extract domain and path from URL: /api/lnurl-proxy/domain.com/.well-known/lnurlp/user
-  const urlPath = (req.url ?? '').split('?')[0]
+  const rawUrl = req.url ?? ''
+  const [urlPath, queryString] = rawUrl.split('?', 2)
   const rest = urlPath.replace(/^\/api\/lnurl-proxy\/?/, '')
   const slashIdx = rest.indexOf('/')
   if (slashIdx === -1) {
@@ -21,7 +22,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const targetHost = rest.slice(0, slashIdx)
   const targetPath = rest.slice(slashIdx)
-  const targetUrl = `https://${targetHost}${targetPath}`
+  const targetUrl = `https://${targetHost}${targetPath}${queryString ? '?' + queryString : ''}`
 
   try {
     const upstream = await fetch(targetUrl, {
