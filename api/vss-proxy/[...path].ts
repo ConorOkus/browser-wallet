@@ -4,10 +4,6 @@ import { buffer } from 'node:stream/consumers'
 /** Disable body parser to preserve raw binary protobuf payloads. */
 export const config = { api: { bodyParser: false } }
 
-/**
- * Vercel serverless function that proxies VSS requests.
- * Reads VSS_ORIGIN from server-side env vars (not exposed to browser).
- */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const vssOrigin = process.env.VSS_ORIGIN
   if (!vssOrigin) {
@@ -15,26 +11,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
 
-  const path = (req.query.path as string[])?.join('/') ?? ''
-
-  // Debug endpoint: POST /api/vss-proxy/debug to see what body we receive
-  if (path === 'debug') {
+  // Debug: return path info when ?debug=1
+  if (req.query.debug === '1') {
     const body = await buffer(req)
     res.status(200).json({
+      queryPath: req.query.path,
+      queryPathType: typeof req.query.path,
+      isArray: Array.isArray(req.query.path),
+      url: req.url,
       bodyLength: body.length,
-      bodyType: typeof req.body,
-      bodyIsBuffer: Buffer.isBuffer(req.body),
-      rawBodyLength: body.length,
-      contentType: req.headers['content-type'],
-      method: req.method,
       firstBytes: body.length > 0 ? Array.from(body.slice(0, 20)) : [],
     })
     return
   }
 
+  const pathSegments = req.query.path
+  const path = Array.isArray(pathSegments)
+    ? pathSegments.join('/')
+    : (pathSegments ?? '')
   const targetUrl = `${vssOrigin}/vss/${path}`
 
-  // Read raw body as Buffer using Node.js stream consumers API
   const body = await buffer(req)
 
   try {
