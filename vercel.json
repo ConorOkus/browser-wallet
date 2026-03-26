@@ -4,7 +4,7 @@
   "rewrites": [
     {
       "source": "/__vss_proxy/vss/:path*",
-      "destination": "https://vss.mutinynet.com/vss/:path*"
+      "destination": "/api/vss-proxy/:path*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
