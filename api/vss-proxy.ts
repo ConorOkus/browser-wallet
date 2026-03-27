@@ -1,3 +1,7 @@
+/**
+ * Vercel serverless function that proxies VSS requests.
+ * Vercel rewrite maps /api/vss-proxy/SEGMENTS to /api/vss-proxy?_path=SEGMENTS
+ */
 export async function GET(request: Request) {
   return proxyToVss(request)
 }
@@ -17,8 +21,8 @@ async function proxyToVss(request: Request): Promise<Response> {
   }
 
   const url = new URL(request.url)
-  const segments = url.pathname.replace(/^\/api\/vss-proxy\/?/, '')
-  const targetUrl = `${vssOrigin}/vss/${segments}`
+  const vssPath = url.searchParams.get('_path') ?? ''
+  const targetUrl = `${vssOrigin}/vss/${vssPath}`
 
   try {
     const upstream = await fetch(targetUrl, {

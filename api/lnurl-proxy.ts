@@ -1,10 +1,10 @@
 /**
  * Vercel serverless function that proxies LNURL requests to bypass CORS.
- * Routes /api/lnurl-proxy/DOMAIN/PATH to https://DOMAIN/PATH.
+ * Vercel rewrite maps /api/lnurl-proxy/DOMAIN/PATH to /api/lnurl-proxy?_path=DOMAIN/PATH
  */
 export async function GET(request: Request) {
   const url = new URL(request.url)
-  const rest = url.pathname.replace(/^\/api\/lnurl-proxy\/?/, '')
+  const rest = url.searchParams.get('_path') ?? ''
   const slashIdx = rest.indexOf('/')
   if (slashIdx === -1) {
     return Response.json(
@@ -15,7 +15,14 @@ export async function GET(request: Request) {
 
   const targetHost = rest.slice(0, slashIdx)
   const targetPath = rest.slice(slashIdx)
-  const targetUrl = `https://${targetHost}${targetPath}${url.search}`
+
+  // Forward original query params (excluding internal _path)
+  const forwardParams = new URLSearchParams()
+  for (const [key, value] of url.searchParams) {
+    if (key !== '_path') forwardParams.set(key, value)
+  }
+  const queryString = forwardParams.toString()
+  const targetUrl = `https://${targetHost}${targetPath}${queryString ? '?' + queryString : ''}`
 
   try {
     const upstream = await fetch(targetUrl, {
