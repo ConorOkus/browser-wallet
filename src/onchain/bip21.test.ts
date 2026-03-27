@@ -15,15 +15,15 @@ describe('buildBip21Uri', () => {
   })
 
   it('builds URI with address and lightning invoice', () => {
-    expect(
-      buildBip21Uri({ address: 'tb1qtest', invoice: 'lntbs1...' })
-    ).toBe('bitcoin:TB1QTEST?lightning=lntbs1...')
+    expect(buildBip21Uri({ address: 'tb1qtest', invoice: 'lntbs1...' })).toBe(
+      'bitcoin:TB1QTEST?lightning=lntbs1...'
+    )
   })
 
   it('builds URI with address, amount, and lightning invoice', () => {
-    expect(
-      buildBip21Uri({ address: 'tb1qtest', amountSats: 50000n, invoice: 'lntbs1...' })
-    ).toBe('bitcoin:TB1QTEST?amount=0.00050000&lightning=lntbs1...')
+    expect(buildBip21Uri({ address: 'tb1qtest', amountSats: 50000n, invoice: 'lntbs1...' })).toBe(
+      'bitcoin:TB1QTEST?amount=0.00050000&lightning=lntbs1...'
+    )
   })
 
   it('omits amount when zero', () => {

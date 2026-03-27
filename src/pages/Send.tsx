@@ -84,7 +84,6 @@ function classifyEstimateError(err: unknown): string {
   return msg
 }
 
-
 /** Get a display label for a Lightning payment recipient. */
 function recipientLabel(
   parsed: ParsedPaymentInput & { type: 'bolt11' | 'bolt12' },
