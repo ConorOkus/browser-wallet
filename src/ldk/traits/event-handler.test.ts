@@ -295,7 +295,13 @@ describe('createEventHandler', () => {
 
     const cm = createMockChannelManager()
     const km = createMockKeysManager()
-    const result = createEventHandler(cm, km, mockBdkWallet as never, undefined, mockOnChannelClosed)
+    const result = createEventHandler(
+      cm,
+      km,
+      mockBdkWallet as never,
+      undefined,
+      mockOnChannelClosed
+    )
     cleanup = result.cleanup
     handleEvent = (result.handler as unknown as { _impl: { handle_event: HandleEventFn } })._impl
       .handle_event

@@ -35,7 +35,11 @@ export function revealNextAddress(wallet: Wallet, tag: string): Uint8Array {
  * wallet-controlled address — but reduce on-chain privacy.
  */
 function channelKeysIdToIndex(channelKeysId: Uint8Array): number {
-  const view = new DataView(channelKeysId.buffer, channelKeysId.byteOffset, channelKeysId.byteLength)
+  const view = new DataView(
+    channelKeysId.buffer,
+    channelKeysId.byteOffset,
+    channelKeysId.byteLength
+  )
   const raw = view.getUint32(0, false) // big-endian
   return raw % 10_000
 }
