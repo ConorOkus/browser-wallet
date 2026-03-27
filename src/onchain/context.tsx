@@ -22,6 +22,7 @@ import { ONCHAIN_CONFIG } from './config'
 import { startOnchainSyncLoop, type OnchainBalance, type OnchainSyncHandle } from './sync'
 import { putChangeset } from './storage/changeset'
 import { useLdk } from '../ldk/use-ldk'
+import type { SyncNeededCallback } from '../ldk/traits/event-handler'
 
 const FEE_TARGET_BLOCKS = 6
 const DEFAULT_FEE_RATE_SAT_VB = 1n
@@ -84,7 +85,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
   // The bdkWallet and bdkEsploraClient are set once during LDK init and never change.
   const bdkWalletRef = useRef<Wallet | null>(null)
   const bdkEsploraRef = useRef<EsploraClient | null>(null)
-  const setSyncNeededRef = useRef<((cb: (() => void) | undefined) => void) | null>(null)
+  const setSyncNeededRef = useRef<((cb: SyncNeededCallback | undefined) => void) | null>(null)
 
   useEffect(() => {
     if (ldk.status !== 'ready') return

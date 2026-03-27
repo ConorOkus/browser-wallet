@@ -8,8 +8,7 @@ import {
 } from 'lightningdevkit'
 import { idbPut, idbDelete } from '../../storage/idb'
 import { bytesToHex } from '../utils'
-import { VssError, type VssClient } from '../storage/vss-client'
-import { ErrorCode } from '../storage/proto/vss_pb'
+import { isVssConflict, type VssClient } from '../storage/vss-client'
 
 function outpointKey(outpoint: OutPoint): string {
   return `${bytesToHex(outpoint.get_txid())}:${outpoint.get_index().toString()}`
@@ -45,10 +44,6 @@ const INITIAL_BACKOFF_MS = 500
 const MAX_BACKOFF_MS = 60_000
 const DEGRADED_THRESHOLD_MS = 10_000
 const MAX_CONFLICT_RETRIES = 5
-
-function isVssConflict(err: unknown): err is VssError {
-  return err instanceof VssError && err.errorCode === ErrorCode.CONFLICT_EXCEPTION
-}
 
 function arraysEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false

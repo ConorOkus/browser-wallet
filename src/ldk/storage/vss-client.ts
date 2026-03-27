@@ -13,6 +13,11 @@ import {
 } from './proto/vss_pb'
 import { vssEncrypt, vssDecrypt, obfuscateKey } from './vss-crypto'
 
+/** Type guard: checks whether an error is a VSS version-conflict response. */
+export function isVssConflict(err: unknown): err is VssError {
+  return err instanceof VssError && err.errorCode === ErrorCode.CONFLICT_EXCEPTION
+}
+
 const FETCH_TIMEOUT_MS = 15_000
 const MAX_LIST_PAGES = 100
 

@@ -10,7 +10,14 @@ import {
   Result_OfferBolt12ParseErrorZ_OK,
   Result_HumanReadableNameNoneZ_OK,
 } from 'lightningdevkit'
-import type { LnurlPayMetadata } from '../lnurl/resolve-lnurl'
+export interface LnurlPayMetadata {
+  domain: string
+  user: string
+  callback: string
+  minSendableMsat: bigint
+  maxSendableMsat: bigint
+  description: string
+}
 
 export type ParsedPaymentInput =
   | {
@@ -28,6 +35,11 @@ export type ParsedPaymentInput =
       description: string | null
     }
   | { type: 'bip353'; name: HumanReadableName; raw: string }
+  /**
+   * Constructed inline by the send flow in Send.tsx, not by `classifyPaymentInput()`.
+   * LNURL resolution happens asynchronously after classification, so this variant
+   * is assembled directly from the resolved metadata rather than during parsing.
+   */
   | { type: 'lnurl'; domain: string; user: string; metadata: LnurlPayMetadata; raw: string }
   | { type: 'onchain'; address: string; amountSats: bigint | null }
   | { type: 'error'; message: string }

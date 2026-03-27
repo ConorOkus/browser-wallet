@@ -1,5 +1,54 @@
 import { describe, it, expect } from 'vitest'
-import { parseBip21, satsToBtcString } from './bip21'
+import { buildBip21Uri, parseBip21, satsToBtcString } from './bip21'
+
+describe('buildBip21Uri', () => {
+  it('builds URI with address only', () => {
+    expect(buildBip21Uri({ address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx' })).toBe(
+      'bitcoin:TB1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KXPJZSX'
+    )
+  })
+
+  it('builds URI with address and amount', () => {
+    expect(
+      buildBip21Uri({ address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx', amountSats: 100000n })
+    ).toBe('bitcoin:TB1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KXPJZSX?amount=0.00100000')
+  })
+
+  it('builds URI with address and lightning invoice', () => {
+    expect(
+      buildBip21Uri({ address: 'tb1qtest', invoice: 'lntbs1...' })
+    ).toBe('bitcoin:TB1QTEST?lightning=lntbs1...')
+  })
+
+  it('builds URI with address, amount, and lightning invoice', () => {
+    expect(
+      buildBip21Uri({ address: 'tb1qtest', amountSats: 50000n, invoice: 'lntbs1...' })
+    ).toBe('bitcoin:TB1QTEST?amount=0.00050000&lightning=lntbs1...')
+  })
+
+  it('omits amount when zero', () => {
+    expect(buildBip21Uri({ address: 'tb1qtest', amountSats: 0n })).toBe('bitcoin:TB1QTEST')
+  })
+
+  it('omits amount when undefined', () => {
+    expect(buildBip21Uri({ address: 'tb1qtest', amountSats: undefined })).toBe('bitcoin:TB1QTEST')
+  })
+
+  it('uppercases the address', () => {
+    const uri = buildBip21Uri({ address: 'tb1qlowercase' })
+    expect(uri).toBe('bitcoin:TB1QLOWERCASE')
+  })
+
+  it('round-trips with parseBip21 for address and amount', () => {
+    const uri = buildBip21Uri({
+      address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
+      amountSats: 123456n,
+    })
+    const parsed = parseBip21(uri)
+    expect(parsed?.address).toBe('TB1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KXPJZSX')
+    expect(parsed?.amountSats).toBe(123456n)
+  })
+})
 
 describe('parseBip21', () => {
   it('returns null for plain addresses', () => {

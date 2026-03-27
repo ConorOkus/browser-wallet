@@ -1,7 +1,6 @@
 import type { ChannelManager } from 'lightningdevkit'
 import { idbPut } from '../../storage/idb'
-import { VssError, type VssClient } from './vss-client'
-import { ErrorCode } from './proto/vss_pb'
+import { isVssConflict, type VssClient } from './vss-client'
 
 const CM_VSS_KEY = 'channel_manager'
 const CM_IDB_KEY = 'primary'
@@ -61,8 +60,4 @@ export async function persistChannelManager(
  */
 export function persistChannelManagerIdbOnly(cm: ChannelManager): Promise<void> {
   return idbPut('ldk_channel_manager', CM_IDB_KEY, cm.write())
-}
-
-function isVssConflict(err: unknown): err is VssError {
-  return err instanceof VssError && err.errorCode === ErrorCode.CONFLICT_EXCEPTION
 }

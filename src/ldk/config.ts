@@ -8,5 +8,6 @@ export const SIGNET_CONFIG = {
   peerTimerIntervalMs: 10_000,
   rgsUrl: 'https://rgs.mutinynet.com/snapshot',
   rgsSyncIntervalTicks: 60, // ~30 min at 30s chain poll interval
+  // The default path requires a proxy (Vite dev server or Vercel rewrite); pnpm preview won't proxy it.
   vssUrl: (import.meta.env.VITE_VSS_URL as string | undefined) ?? '/api/vss-proxy',
 } as const

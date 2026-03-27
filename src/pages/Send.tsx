@@ -11,7 +11,7 @@ import { formatBtc } from '../utils/format-btc'
 import { msatToSatCeil, msatToSatFloor } from '../utils/msat'
 import { bytesToHex } from '../ldk/utils'
 import { ScreenHeader } from '../components/ScreenHeader'
-import { Numpad, type NumpadKey } from '../components/Numpad'
+import { Numpad, type NumpadKey, numpadDigitReducer } from '../components/Numpad'
 import { Check, XClose, ArrowRight } from '../components/icons'
 import {
   RecentPaymentDetails_AwaitingInvoice,
@@ -84,8 +84,6 @@ function classifyEstimateError(err: unknown): string {
   return msg
 }
 
-/** Convert millisatoshis to satoshis, rounding up. Alias for display calculations. */
-const msatToSat = msatToSatCeil
 
 /** Get a display label for a Lightning payment recipient. */
 function recipientLabel(
@@ -152,14 +150,7 @@ export function Send() {
   const handleNumpadKey = useCallback((key: NumpadKey) => {
     setIsSendMax(false)
     setInputError(null)
-    setAmountDigits((prev) => {
-      if (key === 'backspace') return prev.slice(0, -1)
-      if (prev.length >= MAX_DIGITS) return prev
-      if (prev === '0' && key === '0') return prev
-      if (prev === '' && key === '0') return '0'
-      if (prev === '0') return key
-      return prev + key
-    })
+    setAmountDigits((prev) => numpadDigitReducer(prev, key, MAX_DIGITS))
   }, [])
 
   const amountSats = amountDigits ? BigInt(amountDigits) : 0n
@@ -261,7 +252,7 @@ export function Send() {
         ])
         const bip353Result = await resolveBip353(user, domain, bip353Signal)
 
-        if (bip353Result && bip353Result.type !== 'error') {
+        if (bip353Result) {
           routeResolvedInput(bip353Result, raw)
           return
         }
@@ -736,7 +727,7 @@ export function Send() {
         </div>
         <div>
           <div className="font-display text-4xl font-bold text-on-dark">
-            {formatBtc(msatToSat(sendStep.amountMsat))}
+            {formatBtc(msatToSatCeil(sendStep.amountMsat))}
           </div>
           <div className="mt-1 text-[var(--color-on-dark-muted)]">sent via Lightning</div>
         </div>
@@ -827,7 +818,7 @@ export function Send() {
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
         <p className="text-[var(--color-on-dark-muted)]">{statusText}</p>
         <div className="mt-1 text-xs text-[var(--color-on-dark-muted)]">
-          {formatBtc(msatToSat(sendStep.amountMsat))}
+          {formatBtc(msatToSatCeil(sendStep.amountMsat))}
         </div>
         <button
           className="mt-4 text-sm text-red-400 transition-colors hover:text-red-300"
@@ -902,7 +893,7 @@ export function Send() {
           <div className="flex justify-between">
             <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Amount</span>
             <span className="font-display text-3xl font-bold">
-              {formatBtc(msatToSat(amountMsat))}
+              {formatBtc(msatToSatCeil(amountMsat))}
             </span>
           </div>
         </div>

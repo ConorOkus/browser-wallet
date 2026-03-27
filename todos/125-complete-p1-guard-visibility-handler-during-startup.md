@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: 125
 tags: [code-review, connectivity, race-condition]

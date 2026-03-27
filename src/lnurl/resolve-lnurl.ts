@@ -1,11 +1,6 @@
-export interface LnurlPayMetadata {
-  domain: string
-  user: string
-  callback: string
-  minSendableMsat: bigint
-  maxSendableMsat: bigint
-  description: string
-}
+import type { LnurlPayMetadata } from '../ldk/payment-input'
+
+export type { LnurlPayMetadata }
 
 /**
  * Route an HTTPS URL through a CORS proxy.

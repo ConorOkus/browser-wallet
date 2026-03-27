@@ -4,9 +4,9 @@ import { QRCodeSVG } from 'qrcode.react'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
 import { ScreenHeader } from '../components/ScreenHeader'
-import { Numpad, type NumpadKey } from '../components/Numpad'
+import { Numpad, type NumpadKey, numpadDigitReducer } from '../components/Numpad'
 import { formatBtc } from '../utils/format-btc'
-import { satsToBtcString } from '../onchain/bip21'
+import { buildBip21Uri } from '../onchain/bip21'
 
 const MAX_DIGITS = 8
 
@@ -83,19 +83,9 @@ export function Receive() {
     return () => el.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  // Build BIP 321 URI: bitcoin:<ADDRESS>?amount=<BTC>&lightning=<BOLT11>
+  // Build BIP 21 URI: bitcoin:<ADDRESS>?amount=<BTC>&lightning=<BOLT11>
   const bip321Uri = address
-    ? (() => {
-        const base = `bitcoin:${address.toUpperCase()}`
-        const params: string[] = []
-        if (confirmedAmountSats > 0n) {
-          params.push(`amount=${satsToBtcString(confirmedAmountSats)}`)
-        }
-        if (invoice) {
-          params.push(`lightning=${invoice}`)
-        }
-        return params.length > 0 ? `${base}?${params.join('&')}` : base
-      })()
+    ? buildBip21Uri({ address, amountSats: confirmedAmountSats, invoice })
     : ''
 
   const handleCopy = useCallback(async () => {
@@ -115,14 +105,7 @@ export function Receive() {
   }, [copied])
 
   const handleNumpadKey = useCallback((key: NumpadKey) => {
-    setAmountDigits((prev) => {
-      if (key === 'backspace') return prev.slice(0, -1)
-      if (prev.length >= MAX_DIGITS) return prev
-      if (prev === '0' && key === '0') return prev
-      if (prev === '' && key === '0') return '0'
-      if (prev === '0') return key
-      return prev + key
-    })
+    setAmountDigits((prev) => numpadDigitReducer(prev, key, MAX_DIGITS))
   }, [])
 
   const handleConfirmAmount = useCallback(() => {

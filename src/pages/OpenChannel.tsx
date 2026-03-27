@@ -6,7 +6,7 @@ import { hexToBytes, bytesToHex } from '../ldk/utils'
 import { formatBtc } from '../utils/format-btc'
 import { SIGNET_CONFIG } from '../ldk/config'
 import { ScreenHeader } from '../components/ScreenHeader'
-import { Numpad, type NumpadKey } from '../components/Numpad'
+import { Numpad, type NumpadKey, numpadDigitReducer } from '../components/Numpad'
 import { Check, XClose } from '../components/icons'
 
 const PUBKEY_HEX_RE = /^[0-9a-f]{66}$/
@@ -80,14 +80,7 @@ export function OpenChannel() {
   // --- Numpad handler ---
   const handleNumpadKey = useCallback((key: NumpadKey) => {
     setAmountError(null)
-    setAmountDigits((prev) => {
-      if (key === 'backspace') return prev.slice(0, -1)
-      if (prev.length >= MAX_DIGITS) return prev
-      if (prev === '0' && key === '0') return prev
-      if (prev === '' && key === '0') return '0'
-      if (prev === '0') return key
-      return prev + key
-    })
+    setAmountDigits((prev) => numpadDigitReducer(prev, key, MAX_DIGITS))
   }, [])
 
   const amountSats = amountDigits ? BigInt(amountDigits) : 0n

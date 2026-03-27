@@ -22,6 +22,25 @@ export function satsToBtcString(sats: bigint): string {
   return `${whole}.${frac}`
 }
 
+export interface BuildBip21Options {
+  address: string
+  amountSats?: bigint
+  invoice?: string
+}
+
+/** Build a BIP 21 URI from an address and optional query parameters. */
+export function buildBip21Uri({ address, amountSats, invoice }: BuildBip21Options): string {
+  const base = `bitcoin:${address.toUpperCase()}`
+  const params: string[] = []
+  if (amountSats !== undefined && amountSats > 0n) {
+    params.push(`amount=${satsToBtcString(amountSats)}`)
+  }
+  if (invoice) {
+    params.push(`lightning=${invoice}`)
+  }
+  return params.length > 0 ? `${base}?${params.join('&')}` : base
+}
+
 export function parseBip21(input: string): Bip21ParseResult | null {
   if (!input.toLowerCase().startsWith('bitcoin:')) return null
 

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: 134
 tags: [code-review, react, stale-closure, send-flow]

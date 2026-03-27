@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: '094'
 tags: [code-review, security, pr-14, future-feature]

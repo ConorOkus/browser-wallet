@@ -30,7 +30,8 @@ export async function resolveBip353(
       headers: { Accept: 'application/dns-json' },
       signal,
     })
-  } catch {
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err
     return null
   }
 
