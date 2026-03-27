@@ -17,12 +17,11 @@ import {
   type FeeEstimate,
   type MaxSendEstimate,
 } from './onchain-context'
-import { initializeBdkWallet } from './init'
+import { fullScanBdkWallet } from './init'
 import { ONCHAIN_CONFIG } from './config'
 import { startOnchainSyncLoop, type OnchainBalance, type OnchainSyncHandle } from './sync'
 import { putChangeset } from './storage/changeset'
 import { useLdk } from '../ldk/use-ldk'
-import type { SyncNeededCallback } from '../ldk/traits/event-handler'
 
 const FEE_TARGET_BLOCKS = 6
 const DEFAULT_FEE_RATE_SAT_VB = 1n
@@ -73,42 +72,43 @@ function mapSendError(err: unknown): Error {
   return new Error(String(err))
 }
 
-export function OnchainProvider({
-  children,
-  bdkDescriptors,
-}: {
-  children: ReactNode
-  bdkDescriptors: { external: string; internal: string }
-}) {
+export function OnchainProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<OnchainContextValue>(defaultOnchainContextValue)
   const walletRef = useRef<Wallet | null>(null)
   const esploraRef = useRef<EsploraClient | null>(null)
   const syncHandleRef = useRef<OnchainSyncHandle | null>(null)
   const ldk = useLdk()
 
-  // Hold a stable ref to setBdkWallet so it doesn't trigger effect re-runs.
-  // The ldk context object changes reference on every LDK state update —
-  // depending on it directly would tear down and rebuild BDK on each change.
-  const setBdkWalletRef = useRef<((wallet: Wallet | null) => void) | null>(null)
-  const setSyncNeededRef = useRef<((cb: SyncNeededCallback | undefined) => void) | null>(null)
+  // Hold stable refs to LDK-provided values so the main init effect doesn't
+  // re-run on every LDK state change (sync status, channel counter, etc.).
+  // The bdkWallet and bdkEsploraClient are set once during LDK init and never change.
+  const bdkWalletRef = useRef<Wallet | null>(null)
+  const bdkEsploraRef = useRef<EsploraClient | null>(null)
+  const setSyncNeededRef = useRef<((cb: (() => void) | undefined) => void) | null>(null)
+
+  useEffect(() => {
+    if (ldk.status !== 'ready') return
+    bdkWalletRef.current = ldk.bdkWallet
+    bdkEsploraRef.current = ldk.bdkEsploraClient
+    setSyncNeededRef.current = ldk.setSyncNeeded
+  }, [ldk])
 
   // Stable syncNow callback that delegates to the sync handle.
   // Exposed via context so the LDK layer can trigger immediate BDK sync after channel close.
   const syncNow = useCallback(() => {
     syncHandleRef.current?.syncNow()
   }, [])
+
+  // Register syncNow with LDK when both are ready
   useEffect(() => {
-    setBdkWalletRef.current = ldk.status === 'ready' ? ldk.setBdkWallet : null
-    setSyncNeededRef.current = ldk.status === 'ready' ? ldk.setSyncNeeded : null
-    // If BDK wallet initialized before LDK became ready, register it now
-    if (walletRef.current && setBdkWalletRef.current) {
-      setBdkWalletRef.current(walletRef.current)
-    }
-    // Register syncNow callback so LDK's ChannelClosed handler can trigger BDK sync
-    if (syncHandleRef.current && setSyncNeededRef.current) {
+    if (!setSyncNeededRef.current) return
+    if (syncHandleRef.current) {
       setSyncNeededRef.current(syncNow)
     }
-  }, [ldk, syncNow])
+    return () => {
+      setSyncNeededRef.current?.(undefined)
+    }
+  }, [ldk.status, syncNow])
 
   const listTransactions = useCallback(() => {
     const wallet = walletRef.current
@@ -290,18 +290,24 @@ export function OnchainProvider({
     [buildSignBroadcast]
   )
 
+  // Track whether LDK has become ready so the init effect runs once.
+  // Using ldk.status as a dep (not the full ldk object) prevents teardown churn.
+  const ldkReady = ldk.status === 'ready'
+
   useEffect(() => {
+    const wallet = bdkWalletRef.current
+    const esploraClient = bdkEsploraRef.current
+    if (!ldkReady || !wallet || !esploraClient) return
+
     let cancelled = false
 
-    initializeBdkWallet(bdkDescriptors, ONCHAIN_CONFIG.network)
-      .then(({ wallet, esploraClient }) => {
+    walletRef.current = wallet
+    esploraRef.current = esploraClient
+
+    // Run full scan on the wallet that was eagerly created during LDK init
+    fullScanBdkWallet(wallet, esploraClient)
+      .then(() => {
         if (cancelled) return
-
-        walletRef.current = wallet
-        esploraRef.current = esploraClient
-
-        // Register BDK wallet with LDK event handler for channel funding
-        setBdkWalletRef.current?.(wallet)
 
         const handle = startOnchainSyncLoop(wallet, esploraClient, (balance: OnchainBalance) => {
           if (cancelled) return
@@ -320,7 +326,7 @@ export function OnchainProvider({
         })
         syncHandleRef.current = handle
 
-        // Register syncNow with LDK if it became ready before the sync loop started
+        // Register syncNow with LDK now that the sync loop is running
         setSyncNeededRef.current?.(syncNow)
       })
       .catch((err: unknown) => {
@@ -336,15 +342,11 @@ export function OnchainProvider({
       cancelled = true
       syncHandleRef.current?.stop()
       syncHandleRef.current = null
-      // Unregister BDK wallet from LDK event handler
-      setBdkWalletRef.current?.(null)
-      // Unregister syncNow callback from LDK
-      setSyncNeededRef.current?.(undefined)
       walletRef.current = null
       esploraRef.current = null
     }
   }, [
-    bdkDescriptors,
+    ldkReady,
     listTransactions,
     generateAddress,
     estimateFee,
