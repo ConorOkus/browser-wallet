@@ -53,6 +53,9 @@ import {
 } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
 import { SIGNET_CONFIG } from './config'
+import { createLspsMessageHandler } from './lsps2/message-handler'
+import { LSPS2Client } from './lsps2/client'
+import { deriveNodeSecret } from './lsps2/node-secret'
 import { ONCHAIN_CONFIG } from '../onchain/config'
 import { initializeBdkWalletEager } from '../onchain/init'
 import { idbGet, idbGetAll, idbPut, idbDelete, idbDeleteBatch } from '../storage/idb'
@@ -70,6 +73,7 @@ import type { CmPersistContext } from './storage/persist-cm'
 
 export interface LdkNode {
   nodeId: string
+  nodeSecretKey: Uint8Array
   keysManager: KeysManager
   logger: Logger
   feeEstimator: FeeEstimator
@@ -82,6 +86,8 @@ export interface LdkNode {
   peerManager: PeerManager
   onionMessenger: OnionMessenger
   eventHandler: EventHandler
+  lsps2Client: LSPS2Client
+  lspsHandlerDestroy: () => void
 }
 
 export interface InitResult {
@@ -190,6 +196,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   const nowMs = Date.now()
   const startingTimeSecs = BigInt(Math.floor(nowMs / 1000))
   const startingTimeNanos = (nowMs % 1000) * 1_000_000
+  const nodeSecretKey = deriveNodeSecret(seed)
   const keysManager = KeysManager.constructor_new(seed, startingTimeSecs, startingTimeNanos)
   seed.fill(0) // Zero seed bytes after KeysManager copies them
 
@@ -489,12 +496,16 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     ignorer.as_CustomOnionMessageHandler()
   )
 
-  // 12. Create PeerManager
+  // 12. Create LSPS message handler and PeerManager
+  const { handler: lspsHandler, sendRequest: lspsSendRequest, destroy: lspsHandlerDestroy } =
+    createLspsMessageHandler()
+  const lsps2Client = new LSPS2Client({ handler: lspsHandler, sendRequest: lspsSendRequest, destroy: lspsHandlerDestroy })
+
   const peerManager = PeerManager.constructor_new(
     channelManager.as_ChannelMessageHandler(),
     gossipSync.as_RoutingMessageHandler(),
     onionMessenger.as_OnionMessageHandler(),
-    ignorer.as_CustomMessageHandler(),
+    lspsHandler,
     Math.floor(Date.now() / 1000),
     keysManager.as_EntropySource().get_secure_random_bytes(),
     logger,
@@ -587,6 +598,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
 
   const node: LdkNode = {
     nodeId,
+    nodeSecretKey,
     keysManager,
     logger,
     feeEstimator,
@@ -599,6 +611,8 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     peerManager,
     onionMessenger,
     eventHandler,
+    lsps2Client,
+    lspsHandlerDestroy,
   }
 
   return {

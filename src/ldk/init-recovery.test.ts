@@ -217,6 +217,19 @@ vi.mock('lightningdevkit', () => ({
       as_CustomMessageHandler: () => ({}),
     })),
   },
+  CustomMessageHandler: {
+    new_impl: vi.fn(() => ({
+      as_CustomMessageHandler: () => ({}),
+    })),
+  },
+  Result_NoneLightningErrorZ: { constructor_ok: vi.fn(() => ({})) },
+  Result_NoneNoneZ: { constructor_ok: vi.fn(() => ({})) },
+  Result_COption_TypeZDecodeErrorZ: { constructor_ok: vi.fn(() => ({})) },
+  Option_TypeZ: { constructor_none: vi.fn(() => ({})), constructor_some: vi.fn((x: unknown) => x) },
+  TwoTuple_PublicKeyTypeZ: { constructor_new: vi.fn(() => ({})) },
+  Type: { new_impl: vi.fn(() => ({})) },
+  NodeFeatures: { constructor_empty: vi.fn(() => ({ set_optional_custom_bit: vi.fn(() => ({ is_ok: () => true })) })) },
+  InitFeatures: { constructor_empty: vi.fn(() => ({ set_optional_custom_bit: vi.fn(() => ({ is_ok: () => true })) })) },
 }))
 
 import { idbGet, idbGetAll, idbPut, idbDelete, idbDeleteBatch } from '../storage/idb'
