@@ -10,4 +10,10 @@ export const SIGNET_CONFIG = {
   rgsSyncIntervalTicks: 60, // ~30 min at 30s chain poll interval
   // The default path requires a proxy (Vite dev server or Vercel rewrite); pnpm preview won't proxy it.
   vssUrl: (import.meta.env.VITE_VSS_URL as string | undefined) ?? '/api/vss-proxy',
+  lspNodeId:
+    (import.meta.env.VITE_LSP_NODE_ID as string | undefined) ??
+    '', // Set to mutinynet LSP pubkey when available
+  lspHost: (import.meta.env.VITE_LSP_HOST as string | undefined) ?? '',
+  lspPort: Number(import.meta.env.VITE_LSP_PORT ?? '9735'),
+  lspToken: import.meta.env.VITE_LSP_TOKEN as string | undefined,
 } as const

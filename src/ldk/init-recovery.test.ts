@@ -152,7 +152,11 @@ vi.mock('lightningdevkit', () => ({
       as_DNSResolverMessageHandler: () => ({}),
     })),
   },
-  UserConfig: { constructor_default: vi.fn(() => ({})) },
+  UserConfig: {
+    constructor_default: vi.fn(() => ({
+      set_manually_accept_inbound_channels: vi.fn(),
+    })),
+  },
   ChainParameters: { constructor_new: vi.fn(() => ({})) },
   BestBlock: { constructor_new: vi.fn(() => ({})) },
   NetworkGraph: {

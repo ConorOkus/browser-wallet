@@ -96,6 +96,12 @@ export interface InitResult {
   cmPersistCtx: CmPersistContext
 }
 
+function createUserConfig(): UserConfig {
+  const config = UserConfig.constructor_default()
+  config.set_manually_accept_inbound_channels(true)
+  return config
+}
+
 // WASM double-init guard: deduplicate concurrent calls from React StrictMode
 let wasmInitPromise: Promise<void> | null = null
 
@@ -385,7 +391,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       router.as_Router(),
       messageRouter.as_MessageRouter(),
       logger,
-      UserConfig.constructor_default(),
+      createUserConfig(),
       restoredMonitors
     )
     if (result instanceof Result_C2Tuple_ThirtyTwoBytesChannelManagerZDecodeErrorZ_OK) {
@@ -452,7 +458,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       keysManager.as_EntropySource(),
       keysManager.as_NodeSigner(),
       bdkSignerProvider,
-      UserConfig.constructor_default(),
+      createUserConfig(),
       chainParams,
       Math.floor(Date.now() / 1000)
     )
@@ -513,6 +519,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     channelManager,
     keysManager,
     bdkWallet,
+    SIGNET_CONFIG.lspNodeId,
     (...args) => paymentCallback?.(...args),
     (...args) => channelClosedCallback?.(...args),
     () => syncNeededCallback?.()
