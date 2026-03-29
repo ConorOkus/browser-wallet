@@ -8,15 +8,8 @@ import { Numpad, type NumpadKey } from '../components/Numpad'
 import { numpadDigitReducer } from '../components/numpad-reducer'
 import { formatBtc } from '../utils/format-btc'
 import { buildBip21Uri } from '../onchain/bip21'
-import { SIGNET_CONFIG } from '../ldk/config'
 
 const MAX_DIGITS = 8
-
-type JitState =
-  | { step: 'idle' }
-  | { step: 'negotiating' }
-  | { step: 'ready'; openingFeeSats: bigint }
-  | { step: 'error'; message: string }
 
 export function Receive() {
   const navigate = useNavigate()
@@ -30,14 +23,10 @@ export function Receive() {
   const [editingAmount, setEditingAmount] = useState(false)
   const [amountDigits, setAmountDigits] = useState('')
   const [confirmedAmountDigits, setConfirmedAmountDigits] = useState('')
-  const [jitState, setJitState] = useState<JitState>({ step: 'idle' })
   const overlayRef = useRef<HTMLDivElement>(null)
   const amountButtonRef = useRef<HTMLButtonElement>(null)
-  const processingRef = useRef(false)
   const generateAddress = onchain.status === 'ready' ? onchain.generateAddress : null
   const createInvoice = ldk.status === 'ready' ? ldk.createInvoice : null
-  const requestJitInvoice = ldk.status === 'ready' ? ldk.requestJitInvoice : null
-  const listChannels = ldk.status === 'ready' ? ldk.listChannels : null
 
   const confirmedAmountSats = confirmedAmountDigits ? BigInt(confirmedAmountDigits) : 0n
   const editingAmountSats = amountDigits ? BigInt(amountDigits) : 0n
@@ -53,71 +42,21 @@ export function Receive() {
     }
   }, [generateAddress, address, addressError])
 
-  // Determine if we need a JIT channel (no inbound liquidity for this amount)
-  const needsJitChannel = useCallback((): boolean => {
-    if (!listChannels || !SIGNET_CONFIG.lspNodeId) return false
-    if (confirmedAmountSats <= 0n) return false
-    const channels = listChannels()
-    if (channels.length === 0) return true
-    const amountMsat = confirmedAmountSats * 1000n
-    return !channels.some((ch) => ch.get_inbound_capacity_msat() >= amountMsat)
-  }, [listChannels, confirmedAmountSats])
-
-  // Generate invoice: use JIT channel if needed, otherwise standard
+  // Generate invoice on mount (zero-amount) and when confirmed amount changes
   useEffect(() => {
     if (!createInvoice) return
-
-    const useJit = needsJitChannel()
-
-    if (useJit && requestJitInvoice && confirmedAmountSats > 0n) {
-      // JIT channel flow (async)
-      if (processingRef.current) return
-      processingRef.current = true
-      let stale = false
-
-      setJitState({ step: 'negotiating' })
-      setInvoice(null)
+    try {
+      const amountMsat = confirmedAmountSats > 0n ? confirmedAmountSats * 1000n : undefined
+      setInvoice(createInvoice(amountMsat))
       setInvoiceError(null)
-
-      const amountMsat = confirmedAmountSats * 1000n
-      requestJitInvoice(amountMsat, 'zinqq wallet')
-        .then((result) => {
-          if (stale) return
-          setInvoice(result.bolt11)
-          setJitState({ step: 'ready', openingFeeSats: result.openingFeeMsat / 1000n })
-          setInvoiceError(null)
-        })
-        .catch((err: unknown) => {
-          if (stale) return
-          const message = err instanceof Error ? err.message : 'Failed to set up Lightning receive'
-          setJitState({ step: 'error', message })
-          setInvoiceError(null)
-          // Fall back to on-chain only (BIP 21 without lightning parameter)
-          setInvoice(null)
-        })
-        .finally(() => {
-          processingRef.current = false
-        })
-
-      return () => {
-        stale = true
-      }
-    } else {
-      // Standard invoice flow (sync)
-      setJitState({ step: 'idle' })
-      try {
-        const amountMsat = confirmedAmountSats > 0n ? confirmedAmountSats * 1000n : undefined
-        setInvoice(createInvoice(amountMsat))
-        setInvoiceError(null)
-      } catch (err) {
-        console.warn('[Receive] Failed to create invoice:', err)
-        setInvoice(null)
-        if (confirmedAmountSats > 0n) {
-          setInvoiceError('Failed to create Lightning invoice')
-        }
+    } catch (err) {
+      console.warn('[Receive] Failed to create invoice:', err)
+      setInvoice(null)
+      if (confirmedAmountSats > 0n) {
+        setInvoiceError('Failed to create Lightning invoice')
       }
     }
-  }, [createInvoice, requestJitInvoice, confirmedAmountSats, needsJitChannel])
+  }, [createInvoice, confirmedAmountSats])
 
   // Focus trap: keep focus within overlay
   useEffect(() => {
@@ -151,16 +90,14 @@ export function Receive() {
     : ''
 
   const handleCopy = useCallback(async () => {
-    // When JIT invoice is active, copy just the BOLT11 (faucets/wallets need the raw invoice)
-    const textToCopy = (jitState.step === 'ready' && invoice) ? invoice : bip321Uri
-    if (!textToCopy) return
+    if (!bip321Uri) return
     try {
-      await navigator.clipboard.writeText(textToCopy)
+      await navigator.clipboard.writeText(bip321Uri)
       setCopied(true)
     } catch {
       // Address is displayed and selectable as fallback
     }
-  }, [bip321Uri, jitState, invoice])
+  }, [bip321Uri])
 
   useEffect(() => {
     if (!copied) return
@@ -220,13 +157,8 @@ export function Receive() {
   }
 
   // QR uses uppercase for optimal alphanumeric QR encoding
-  const isJitInvoice = jitState.step === 'ready' && invoice
-  const qrValue = isJitInvoice ? invoice.toUpperCase() : bip321Uri.toUpperCase()
-  const truncated = isJitInvoice
-    ? `${invoice!.slice(0, 16)}...${invoice!.slice(-6)}`
-    : address
-      ? `bitcoin:${address.slice(0, 8)}...${address.slice(-6)}`
-      : ''
+  const qrValue = bip321Uri.toUpperCase()
+  const truncated = address ? `bitcoin:${address.slice(0, 8)}...${address.slice(-6)}` : ''
 
   return (
     <div
@@ -271,12 +203,6 @@ export function Receive() {
           <div className="flex flex-1 flex-col items-center justify-center gap-8 px-8">
             {addressError && <p className="text-sm text-red-400">{addressError}</p>}
             {invoiceError && <p className="text-sm text-red-400">{invoiceError}</p>}
-            {jitState.step === 'error' && (
-              <p className="text-sm text-red-400">{jitState.message}</p>
-            )}
-            {jitState.step === 'negotiating' && (
-              <p className="text-sm text-[var(--color-on-dark-muted)]">Setting up Lightning receive...</p>
-            )}
             {address && (
               <>
                 {confirmedAmountSats > 0n && (
@@ -296,12 +222,6 @@ export function Receive() {
                 >
                   <QRCodeSVG value={qrValue} size={220} />
                 </div>
-
-                {jitState.step === 'ready' && (
-                  <p className="text-xs text-[var(--color-on-dark-muted)]">
-                    Opening fee: {formatBtc(jitState.openingFeeSats)}
-                  </p>
-                )}
 
                 <div className="flex max-w-full items-center gap-3 rounded-full bg-dark-elevated px-5 py-3">
                   <span className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-sm text-[var(--color-on-dark-muted)]">

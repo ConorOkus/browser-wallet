@@ -88,7 +88,6 @@ export interface LdkNode {
   onionMessenger: OnionMessenger
   eventHandler: EventHandler
   lsps2Client: LSPS2Client
-  lspsHandlerDestroy: () => void
 }
 
 export interface InitResult {
@@ -515,9 +514,9 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   )
 
   // 12. Create LSPS message handler and PeerManager
-  const { handler: lspsHandler, sendRequest: lspsSendRequest, destroy: lspsHandlerDestroy, setFlushCallback } =
+  const { handler: lspsHandler, sendRequest: lspsSendRequest, setFlushCallback } =
     createLspsMessageHandler()
-  const lsps2Client = new LSPS2Client({ handler: lspsHandler, sendRequest: lspsSendRequest, destroy: lspsHandlerDestroy, setFlushCallback })
+  const lsps2Client = new LSPS2Client(lspsSendRequest)
 
   const peerManager = PeerManager.constructor_new(
     channelManager.as_ChannelMessageHandler(),
@@ -644,7 +643,6 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     onionMessenger,
     eventHandler,
     lsps2Client,
-    lspsHandlerDestroy,
   }
 
   return {

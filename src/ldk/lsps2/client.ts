@@ -6,11 +6,10 @@
  */
 
 import { hexToBytes } from '../utils'
-import type { LspsMessageHandlerResult } from './message-handler'
+import type { JsonRpcResponse } from './types'
 import {
   type OpeningFeeParams,
   type BuyResponse,
-  type JsonRpcResponse,
   serializeJsonRpcRequest,
   serializeOpeningFeeParams,
   deserializeOpeningFeeParams,
@@ -20,11 +19,13 @@ import {
 } from './types'
 import { encodeBolt11Invoice, parseLsps2Scid, type RouteHintEntry } from './bolt11-encoder'
 
-export class LSPS2Client {
-  private messageHandler: LspsMessageHandlerResult
+type SendRequestFn = (peerPubkey: Uint8Array, payload: string) => Promise<JsonRpcResponse>
 
-  constructor(messageHandler: LspsMessageHandlerResult) {
-    this.messageHandler = messageHandler
+export class LSPS2Client {
+  private sendRequest: SendRequestFn
+
+  constructor(sendRequest: SendRequestFn) {
+    this.sendRequest = sendRequest
   }
 
   async getOpeningFeeParams(lspNodeId: string, token?: string): Promise<OpeningFeeParams[]> {
@@ -76,7 +77,7 @@ export class LSPS2Client {
       throw new Error('Invalid lsps2.buy response: invalid lsp_cltv_expiry_delta')
     }
 
-    if (trustsLsp === true) {
+    if (trustsLsp !== false) {
       throw new Error(
         'This LSP requires a trust mode that is not supported. ' +
           'Your funds would not be protected until the channel is confirmed.'
@@ -86,7 +87,6 @@ export class LSPS2Client {
     return {
       jitChannelScid: scid,
       lspCltvExpiryDelta: cltvDelta,
-      clientTrustsLsp: trustsLsp === true,
     }
   }
 
@@ -134,14 +134,6 @@ export class LSPS2Client {
     )
   }
 
-  async sendRawRequest(
-    lspNodeId: string,
-    method: string,
-    params: Record<string, unknown>
-  ): Promise<JsonRpcResponse> {
-    return this.sendLsps2Request(lspNodeId, method, params)
-  }
-
   private async sendLsps2Request(
     lspNodeId: string,
     method: string,
@@ -150,6 +142,6 @@ export class LSPS2Client {
     const id = crypto.randomUUID()
     const payload = serializeJsonRpcRequest(id, method, params)
     const pubkeyBytes = hexToBytes(lspNodeId)
-    return this.messageHandler.sendRequest(pubkeyBytes, payload)
+    return this.sendRequest(pubkeyBytes, payload)
   }
 }

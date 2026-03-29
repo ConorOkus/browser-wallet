@@ -451,6 +451,7 @@ describe('createEventHandler', () => {
       cm,
       createMockKeysManager(),
       mockBdkWallet as never,
+      '',
       undefined,
       undefined,
       mockSyncNeeded

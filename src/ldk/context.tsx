@@ -239,17 +239,6 @@ export function LdkProvider({
         }
       }
 
-      // Step 0: Test LSPS0 connectivity with list_protocols
-      console.log('[LSPS2] Sending lsps0.list_protocols to verify LSPS connectivity...')
-      try {
-        const lsps0Response = await node.lsps2Client.sendRawRequest(
-          lspNodeId, 'lsps0.list_protocols', {}
-        )
-        console.log('[LSPS2] lsps0.list_protocols response:', JSON.stringify(lsps0Response))
-      } catch (err) {
-        console.warn('[LSPS2] lsps0.list_protocols failed:', err)
-      }
-
       // Step 1: Get opening fee params from LSP
       const feeMenu = await node.lsps2Client.getOpeningFeeParams(lspNodeId, SIGNET_CONFIG.lspToken)
 
@@ -268,11 +257,13 @@ export function LdkProvider({
       const buyResponse = await node.lsps2Client.buyChannel(lspNodeId, selectedParams, amountMsat)
 
       // Step 4: Register payment with LDK
-      // Pass None for amount: the LSP deducts the opening fee before forwarding,
-      // so the received amount will be less than the invoice amount. If we enforce
-      // the full amount here, LDK rejects the payment with incorrect_payment_details.
+      // The LSP deducts the opening fee before forwarding, so the received amount
+      // will be less than the invoice amount. Pass the expected post-fee amount
+      // so LDK rejects grossly underpaid HTLCs while allowing the fee deduction.
+      const openingFeeMsat = calculateOpeningFee(amountMsat, selectedParams)
+      const expectedReceiveMsat = amountMsat - openingFeeMsat
       const paymentResult = node.channelManager.create_inbound_payment(
-        Option_u64Z_None.constructor_none(),
+        Option_u64Z.constructor_some(expectedReceiveMsat),
         3600, // 1 hour expiry
         Option_u16Z_None.constructor_none()
       )
@@ -284,14 +275,6 @@ export function LdkProvider({
 
       // Step 5: Build and sign the BOLT11 invoice with JIT route hint
       const nodeIdBytes = hexToBytes(node.nodeId)
-      console.log('[LSPS2] Building JIT invoice:', {
-        jitChannelScid: buyResponse.jitChannelScid,
-        lspCltvExpiryDelta: buyResponse.lspCltvExpiryDelta,
-        amountMsat: amountMsat.toString(),
-        paymentHash: bytesToHex(paymentHash),
-        paymentSecret: bytesToHex(paymentSecret),
-        nodeId: node.nodeId,
-      })
       const bolt11 = await node.lsps2Client.createJitInvoice({
         buyResponse,
         lspNodeId,
@@ -303,10 +286,6 @@ export function LdkProvider({
         paymentSecret,
         minFinalCltvExpiry: 144,
       })
-
-      console.log('[LSPS2] Generated JIT invoice:', bolt11)
-
-      const openingFeeMsat = calculateOpeningFee(amountMsat, selectedParams)
 
       return { bolt11, openingFeeMsat }
     },
@@ -489,10 +468,15 @@ export function LdkProvider({
 
           nodeRef.current = node
 
-          // Expose node on window for dev console debugging
+          // Expose node on window for dev console debugging (exclude secret key)
           if (import.meta.env.DEV) {
-            ;(window as unknown as Record<string, unknown>).__ldkNode = node
+            const { nodeSecretKey: _secret, ...safeNode } = node
+            ;(window as unknown as Record<string, unknown>).__ldkNode = safeNode
           }
+
+          // Zero the node secret key on page unload to limit memory exposure
+          const zeroSecretOnUnload = () => node.nodeSecretKey.fill(0)
+          window.addEventListener('beforeunload', zeroSecretOnUnload)
 
           // Wire payment event callback to update the result store and refresh history
           setPaymentCallback((event) => {

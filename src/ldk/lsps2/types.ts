@@ -42,7 +42,6 @@ export interface OpeningFeeParams {
 export interface BuyResponse {
   jitChannelScid: string
   lspCltvExpiryDelta: number
-  clientTrustsLsp: boolean
 }
 
 export interface JitInvoiceResult {
