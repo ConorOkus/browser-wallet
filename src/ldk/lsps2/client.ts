@@ -13,8 +13,6 @@ import {
   serializeJsonRpcRequest,
   serializeOpeningFeeParams,
   deserializeOpeningFeeParams,
-  calculateOpeningFee,
-  selectCheapestParams,
   lsps2ErrorMessage,
 } from './types'
 import { encodeBolt11Invoice, parseLsps2Scid, type RouteHintEntry } from './bolt11-encoder'
