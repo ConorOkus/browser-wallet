@@ -239,6 +239,17 @@ export function LdkProvider({
         }
       }
 
+      // Step 0: Test LSPS0 connectivity with list_protocols
+      console.log('[LSPS2] Sending lsps0.list_protocols to verify LSPS connectivity...')
+      try {
+        const lsps0Response = await node.lsps2Client.sendRawRequest(
+          lspNodeId, 'lsps0.list_protocols', {}
+        )
+        console.log('[LSPS2] lsps0.list_protocols response:', JSON.stringify(lsps0Response))
+      } catch (err) {
+        console.warn('[LSPS2] lsps0.list_protocols failed:', err)
+      }
+
       // Step 1: Get opening fee params from LSP
       const feeMenu = await node.lsps2Client.getOpeningFeeParams(lspNodeId, SIGNET_CONFIG.lspToken)
 
@@ -836,8 +847,9 @@ export function LdkProvider({
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       syncHandle?.stop()
       cleanupEventHandlerFn?.()
-      nodeRef.current?.lspsHandlerDestroy()
-      nodeRef.current?.nodeSecretKey.fill(0)
+      // Don't destroy LSPS handler or zero key here — React StrictMode
+      // re-runs effects but the node is deduplicated via initPromise.
+      // These cleanups happen in the node's own lifecycle (page unload).
       if (peerTimerId !== null) clearInterval(peerTimerId)
       if (offerRetryTimer !== null) clearTimeout(offerRetryTimer)
       for (const [, conn] of connections) {

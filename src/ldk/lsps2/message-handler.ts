@@ -83,14 +83,16 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
     const parsed = JSON.parse(payload) as { id: string }
     const requestId = parsed.id
 
+    console.log('[LSPS2] Queuing outbound request:', requestId, 'method:', (parsed as {method?: string}).method)
+
     return new Promise<JsonRpcResponse>((resolve, reject) => {
       pending.set(requestId, { resolve, reject, createdAt: Date.now(), peerHex })
       outbound.push({ pubkey: peerPubkey, payload })
       // Flush outbound queue immediately via PeerManager.process_events()
-      // Without this, the request sits in the queue until the next 10s timer tick.
-      // Use queueMicrotask so the Promise is returned before the flush runs,
-      // allowing the caller's await to suspend first.
-      queueMicrotask(() => flushCallback?.())
+      queueMicrotask(() => {
+        console.log('[LSPS2] Flushing outbound queue, flushCallback set:', !!flushCallback)
+        flushCallback?.()
+      })
     })
   }
 
@@ -98,6 +100,8 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
     {
       handle_custom_message(msg: Type, senderNodeId: Uint8Array): Result_NoneLightningErrorZ {
         const bytes = msg.write()
+        console.log('[LSPS2] handle_custom_message: received', bytes.length, 'bytes from', bytesToHex(senderNodeId).substring(0, 16) + '...')
+
         if (bytes.length > MAX_LSPS_MESSAGE_BYTES) {
           console.warn('[LSPS2] Dropping oversized message:', bytes.length, 'bytes')
           return Result_NoneLightningErrorZ.constructor_ok()
@@ -111,20 +115,29 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
           return Result_NoneLightningErrorZ.constructor_ok()
         }
 
+        console.log('[LSPS2] Received message text:', text.substring(0, 200))
+
         let response: JsonRpcResponse
         try {
           response = deserializeJsonRpcResponse(text)
-        } catch {
-          console.warn('[LSPS2] Failed to parse JSON-RPC response')
+        } catch (err) {
+          console.warn('[LSPS2] Failed to parse JSON-RPC response:', err)
           return Result_NoneLightningErrorZ.constructor_ok()
         }
 
+        console.log('[LSPS2] Parsed response id:', response.id, 'has result:', !!response.result, 'has error:', !!response.error)
+
         const pendingEntry = pending.get(response.id)
-        if (pendingEntry && bytesToHex(senderNodeId) === pendingEntry.peerHex) {
-          pending.delete(response.id)
-          pendingEntry.resolve(response)
+        console.log('[LSPS2] Pending entry for id:', !!pendingEntry, 'pending count:', pending.size)
+        if (pendingEntry) {
+          const senderHex = bytesToHex(senderNodeId)
+          console.log('[LSPS2] Sender match:', senderHex === pendingEntry.peerHex, 'sender:', senderHex.substring(0, 16), 'expected:', pendingEntry.peerHex.substring(0, 16))
+          if (senderHex === pendingEntry.peerHex) {
+            pending.delete(response.id)
+            pendingEntry.resolve(response)
+            console.log('[LSPS2] Resolved pending request:', response.id)
+          }
         }
-        // Silently discard responses with no matching entry or wrong sender
 
         return Result_NoneLightningErrorZ.constructor_ok()
       },
@@ -133,16 +146,22 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
         if (outbound.length === 0) return []
 
         const messages = outbound.splice(0)
+        console.log('[LSPS2] get_and_clear_pending_msg: sending', messages.length, 'message(s)')
+        for (const m of messages) {
+          console.log('[LSPS2] Outbound to:', bytesToHex(m.pubkey).substring(0, 16) + '...', 'payload:', m.payload.substring(0, 150))
+        }
         return messages.map(({ pubkey, payload }) => {
           const bytes = new TextEncoder().encode(payload)
           const msgType = Type.new_impl({
             type_id(): number {
+              console.log('[LSPS2] Type.type_id() called, returning', LSPS_MESSAGE_TYPE)
               return LSPS_MESSAGE_TYPE
             },
             debug_str(): string {
               return `LSPS message (${bytes.length} bytes)`
             },
             write(): Uint8Array {
+              console.log('[LSPS2] Type.write() called, returning', bytes.length, 'bytes')
               return bytes
             },
           })
@@ -152,6 +171,7 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
 
       peer_disconnected(theirNodeId: Uint8Array): void {
         const peerHex = bytesToHex(theirNodeId)
+        console.log('[LSPS2] peer_disconnected:', peerHex.substring(0, 16) + '...')
         for (const [id, entry] of pending) {
           if (entry.peerHex === peerHex) {
             entry.reject(new Error('LSP peer disconnected'))
@@ -178,10 +198,12 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
     },
     {
       read(messageType: number, buffer: Uint8Array): Result_COption_TypeZDecodeErrorZ {
+        console.log('[LSPS2] CustomMessageReader.read: type=', messageType, 'length=', buffer.length)
         if (messageType !== LSPS_MESSAGE_TYPE) {
           return Result_COption_TypeZDecodeErrorZ.constructor_ok(Option_TypeZ.constructor_none())
         }
 
+        console.log('[LSPS2] Recognized LSPS message type', LSPS_MESSAGE_TYPE)
         // We know this message type; wrap the raw bytes as a Type
         const capturedBuffer = new Uint8Array(buffer)
         const customType = Type.new_impl({

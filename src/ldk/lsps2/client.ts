@@ -28,8 +28,7 @@ export class LSPS2Client {
   }
 
   async getOpeningFeeParams(lspNodeId: string, token?: string): Promise<OpeningFeeParams[]> {
-    const params: Record<string, unknown> = {}
-    if (token) params.token = token
+    const params: Record<string, unknown> = { token: token ?? null }
 
     const response = await this.sendLsps2Request(lspNodeId, 'lsps2.get_info', params)
 
@@ -133,6 +132,14 @@ export class LSPS2Client {
       },
       params.nodeSecretKey
     )
+  }
+
+  async sendRawRequest(
+    lspNodeId: string,
+    method: string,
+    params: Record<string, unknown>
+  ): Promise<JsonRpcResponse> {
+    return this.sendLsps2Request(lspNodeId, method, params)
   }
 
   private async sendLsps2Request(
