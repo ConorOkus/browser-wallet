@@ -1,5 +1,5 @@
 ---
-title: "feat: Mainnet infrastructure config (Esplora, RGS, VSS, network switching)"
+title: 'feat: Mainnet infrastructure config (Esplora, RGS, VSS, network switching)'
 type: feat
 status: active
 date: 2026-03-30
@@ -15,6 +15,7 @@ Replace the hardcoded `SIGNET_CONFIG` / `ONCHAIN_CONFIG` with a network-keyed co
 ## Problem Statement / Motivation
 
 Zinqq is hardcoded to signet/mutinynet. To ship a mainnet product, the app needs:
+
 - Mainnet Esplora, RGS, and VSS endpoints
 - Correct LDK/BDK network enums for mainnet
 - Megalith LSP wired to mainnet config (it only supports mainnet)
@@ -62,7 +63,7 @@ const NETWORK_CONFIGS: Record<NetworkId, LdkConfig> = {
     rgsUrl: 'https://rgs.mutinynet.com/snapshot',
     rgsSyncIntervalTicks: 60,
     vssUrl: '/api/vss-proxy',
-    lspNodeId: '',  // No signet-compatible LSP currently
+    lspNodeId: '', // No signet-compatible LSP currently
     lspHost: '',
     lspPort: 9736,
     genesisBlockHash: '00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6',
@@ -170,7 +171,7 @@ const genesisHash = await esplora.getBlockHash(0)
 if (genesisHash !== LDK_CONFIG.genesisBlockHash) {
   throw new Error(
     `[LDK Init] Network mismatch: Esplora returned genesis ${genesisHash.substring(0, 16)}... ` +
-    `but expected ${LDK_CONFIG.genesisBlockHash.substring(0, 16)}... for ${ACTIVE_NETWORK}`
+      `but expected ${LDK_CONFIG.genesisBlockHash.substring(0, 16)}... for ${ACTIVE_NETWORK}`
   )
 }
 ```
@@ -191,6 +192,7 @@ This prevents same-origin IDB collisions when a developer runs both networks on 
 #### 3c. LSP graceful degradation
 
 When `lspNodeId` is empty (signet with no LSP):
+
 - Skip auto-connect to LSP peer at init (`context.tsx:728`)
 - Hide "Receive via Lightning (new channel)" in the UI when no LSP is configured
 - `requestJitInvoice` returns an error: "Lightning receive requires an LSP. Currently unavailable on this network."
@@ -214,10 +216,10 @@ Pattern: try primary → on 5xx/timeout/network error → retry once with `esplo
 
 #### Vercel projects
 
-| Project | Domain | `VITE_NETWORK` | `VSS_ORIGIN` | `VITE_WS_PROXY_URL` |
-|---------|--------|----------------|--------------|---------------------|
-| zinqq-mainnet | zinqq.com | `mainnet` | mainnet VSS IP | production WS proxy URL |
-| zinqq-testnet | testnet.zinqq.com | `signet` | signet VSS IP | dev WS proxy URL |
+| Project       | Domain            | `VITE_NETWORK` | `VSS_ORIGIN`   | `VITE_WS_PROXY_URL`     |
+| ------------- | ----------------- | -------------- | -------------- | ----------------------- |
+| zinqq-mainnet | zinqq.com         | `mainnet`      | mainnet VSS IP | production WS proxy URL |
+| zinqq-testnet | testnet.zinqq.com | `signet`       | signet VSS IP  | dev WS proxy URL        |
 
 Both deploy from the same repo. Vercel env vars control the network.
 
@@ -241,9 +243,9 @@ Preview deployments default to signet (the `VITE_NETWORK` default). Dev WS proxy
 
 Move fee safety constants into the per-network config:
 
-| Constant | Signet | Mainnet |
-|----------|--------|---------|
-| `MAX_FEE_SATS` | `50_000n` | `50_000n` (keep for now, ~$50 cap) |
+| Constant         | Signet    | Mainnet                                      |
+| ---------------- | --------- | -------------------------------------------- |
+| `MAX_FEE_SATS`   | `50_000n` | `50_000n` (keep for now, ~$50 cap)           |
 | `MAX_FEE_SAT_KW` | `500_000` | `500_000` (keep, matches mainnet fee spikes) |
 
 These are reasonable for mainnet. Can be adjusted later based on user feedback.
