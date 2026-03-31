@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
 import { useOnchain } from '../onchain/use-onchain'
@@ -39,35 +39,17 @@ export function Receive() {
   const [confirmedAmountDigits, setConfirmedAmountDigits] = useState('')
   const overlayRef = useRef<HTMLDivElement>(null)
   const amountButtonRef = useRef<HTMLButtonElement>(null)
-  const processingRef = useRef(false)
+  const requestCounterRef = useRef(0)
 
   const generateAddress = onchain.status === 'ready' ? onchain.generateAddress : null
   const createInvoice = ldk.status === 'ready' ? ldk.createInvoice : null
   const requestJitInvoice = ldk.status === 'ready' ? ldk.requestJitInvoice : null
   const listChannels = ldk.status === 'ready' ? ldk.listChannels : null
   const peersReconnected = ldk.status === 'ready' ? ldk.peersReconnected : false
-  const channelChangeCounter = ldk.status === 'ready' ? ldk.channelChangeCounter : 0
   const paymentHistory = ldk.status === 'ready' ? ldk.paymentHistory : []
 
   const confirmedAmountSats = confirmedAmountDigits ? BigInt(confirmedAmountDigits) : 0n
   const editingAmountSats = amountDigits ? BigInt(amountDigits) : 0n
-
-  // Compute total inbound capacity from usable channels
-  const totalInboundMsat = useMemo(() => {
-    if (!listChannels) return 0n
-    const channels = listChannels()
-    let total = 0n
-    for (const ch of channels) {
-      if (ch.get_is_usable()) {
-        total += ch.get_inbound_capacity_msat()
-      }
-    }
-    return total
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listChannels, channelChangeCounter])
-
-  const hasUsableChannels =
-    totalInboundMsat > 0n || (listChannels?.().some((ch) => ch.get_is_usable()) ?? false)
 
   // Generate on-chain address on mount
   useEffect(() => {
@@ -81,18 +63,29 @@ export function Receive() {
     }
   }, [generateAddress, address, addressError])
 
-  // Generate invoice based on amount and inbound capacity
+  // Generate invoice based on amount and inbound capacity.
+  // Deps intentionally exclude channel state — inbound capacity is computed
+  // inline so that channel changes (e.g. JIT channel opening) don't trigger
+  // a re-run that would discard the in-flight JIT result.
   useEffect(() => {
     if (!createInvoice) return
-    if (processingRef.current) return
 
     // Wait for peers to reconnect if channels exist but aren't usable yet
     if (!peersReconnected && listChannels && listChannels().length > 0) return
 
     const amountMsat = confirmedAmountSats > 0n ? confirmedAmountSats * 1000n : undefined
 
-    // Determine which path to use
-    const needsJit = amountMsat !== undefined ? totalInboundMsat < amountMsat : !hasUsableChannels
+    // Compute inbound capacity inline (not memoized) so it doesn't appear in deps
+    const channels = listChannels?.() ?? []
+    let inboundMsat = 0n
+    for (const ch of channels) {
+      if (ch.get_is_usable()) {
+        inboundMsat += ch.get_inbound_capacity_msat()
+      }
+    }
+    const hasUsable = inboundMsat > 0n || channels.some((ch) => ch.get_is_usable())
+
+    const needsJit = amountMsat !== undefined ? inboundMsat < amountMsat : !hasUsable
 
     if (needsJit && amountMsat === undefined) {
       // JIT needed but no amount -- show on-chain only
@@ -105,9 +98,9 @@ export function Receive() {
     }
 
     if (needsJit && requestJitInvoice && amountMsat !== undefined) {
-      // LSPS2 JIT path
-      processingRef.current = true
-      let stale = false
+      // LSPS2 JIT path — use a request counter so that only the latest
+      // request's result is applied (handles amount changes mid-flight).
+      const thisRequest = ++requestCounterRef.current
 
       setInvoice(null)
       setPaymentHash(null)
@@ -117,27 +110,22 @@ export function Receive() {
 
       requestJitInvoice(amountMsat, 'zinqq wallet')
         .then((result) => {
-          if (stale) return
+          if (requestCounterRef.current !== thisRequest) return
           setInvoice(result.bolt11)
           setPaymentHash(result.paymentHash)
           setOpeningFeeSats(result.openingFeeMsat / 1000n)
           setReceiveState({ step: 'ready', invoicePath: 'jit' })
         })
         .catch((err: unknown) => {
-          if (stale) return
+          if (requestCounterRef.current !== thisRequest) return
           console.warn('[Receive] JIT invoice failed:', err)
           setInvoice(null)
           setPaymentHash(null)
           setOpeningFeeSats(null)
           setReceiveState({ step: 'jit-failed' })
         })
-        .finally(() => {
-          processingRef.current = false
-        })
 
-      return () => {
-        stale = true
-      }
+      return
     }
 
     // Standard path
@@ -157,15 +145,8 @@ export function Receive() {
       }
       setReceiveState({ step: 'ready', invoicePath: 'none' })
     }
-  }, [
-    createInvoice,
-    requestJitInvoice,
-    listChannels,
-    confirmedAmountSats,
-    totalInboundMsat,
-    hasUsableChannels,
-    peersReconnected,
-  ])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createInvoice, requestJitInvoice, confirmedAmountSats, peersReconnected])
 
   // Watch payment history for success
   useEffect(() => {
