@@ -1,4 +1,4 @@
-export interface Bip21ParseResult {
+export interface Bip321ParseResult {
   address: string
   amountSats?: bigint
 }
@@ -22,14 +22,14 @@ export function satsToBtcString(sats: bigint): string {
   return `${whole}.${frac}`
 }
 
-export interface BuildBip21Options {
+export interface BuildBip321Options {
   address: string
   amountSats?: bigint
   invoice?: string | null
 }
 
-/** Build a BIP 21 URI from an address and optional query parameters. */
-export function buildBip21Uri({ address, amountSats, invoice }: BuildBip21Options): string {
+/** Build a BIP 321 URI from an address and optional query parameters. */
+export function buildBip321Uri({ address, amountSats, invoice }: BuildBip321Options): string {
   const base = `bitcoin:${address.toUpperCase()}`
   const params: string[] = []
   if (amountSats !== undefined && amountSats > 0n) {
@@ -41,10 +41,10 @@ export function buildBip21Uri({ address, amountSats, invoice }: BuildBip21Option
   return params.length > 0 ? `${base}?${params.join('&')}` : base
 }
 
-export function parseBip21(input: string): Bip21ParseResult | null {
+export function parseBip321(input: string): Bip321ParseResult | null {
   if (!input.toLowerCase().startsWith('bitcoin:')) return null
 
-  // BIP21: bitcoin:<address>?amount=<btc>&label=...
+  // BIP 321: bitcoin:<address>?amount=<btc>&label=...
   const withoutScheme = input.slice('bitcoin:'.length)
   const parts = withoutScheme.split('?', 2)
   const address = (parts[0] ?? '').trim()

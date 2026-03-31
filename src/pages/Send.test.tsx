@@ -72,7 +72,7 @@ function renderSend(onchainValue?: OnchainContextValue, ldkValue?: LdkContextVal
     listRecentPayments: vi.fn(() => []),
     outboundCapacityMsat: vi.fn(() => 1_000_000_000n),
     lightningBalanceSats: 1_000_000n,
-    createInvoice: vi.fn(() => 'lnbc1test'),
+    createInvoice: vi.fn(() => ({ bolt11: 'lnbc1test', paymentHash: 'abc123' })),
     requestJitInvoice: vi.fn(),
     channelChangeCounter: 0,
     paymentHistory: [],
@@ -455,7 +455,7 @@ describe('Send', () => {
         listRecentPayments: vi.fn(() => []),
         outboundCapacityMsat: vi.fn(() => 1000n), // Very low capacity
         lightningBalanceSats: 1n,
-        createInvoice: vi.fn(() => 'lnbc1test'),
+        createInvoice: vi.fn(() => ({ bolt11: 'lnbc1test', paymentHash: 'abc123' })),
         requestJitInvoice: vi.fn(),
         channelChangeCounter: 0,
         paymentHistory: [],
