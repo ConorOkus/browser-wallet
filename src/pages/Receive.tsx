@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
 import { useOnchain } from '../onchain/use-onchain'
@@ -16,7 +16,6 @@ type InvoicePath = 'none' | 'standard' | 'jit'
 type ReceiveState =
   | { step: 'ready'; invoicePath: InvoicePath }
   | { step: 'negotiating-jit' }
-  | { step: 'jit-failed' }
   | { step: 'success'; amountSats: bigint }
 
 export function Receive() {
@@ -46,24 +45,27 @@ export function Receive() {
   const requestJitInvoice = ldk.status === 'ready' ? ldk.requestJitInvoice : null
   const listChannels = ldk.status === 'ready' ? ldk.listChannels : null
   const peersReconnected = ldk.status === 'ready' ? ldk.peersReconnected : false
+  const channelChangeCounter = ldk.status === 'ready' ? ldk.channelChangeCounter : 0
   const paymentHistory = ldk.status === 'ready' ? ldk.paymentHistory : []
 
   const confirmedAmountSats = confirmedAmountDigits ? BigInt(confirmedAmountDigits) : 0n
   const editingAmountSats = amountDigits ? BigInt(amountDigits) : 0n
 
   // No usable channels → JIT is required → amount is required
-  const needsAmount =
-    !listChannels ||
-    !listChannels().some((ch) => ch.get_is_usable())
+  const needsAmount = useMemo(() => {
+    if (!listChannels) return true
+    return !listChannels().some((ch) => ch.get_is_usable())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listChannels, channelChangeCounter])
 
   // Start with numpad open when amount is required (first receive / no channels)
-  const [hasInitAmount, setHasInitAmount] = useState(false)
+  const didInitAmountRef = useRef(false)
   useEffect(() => {
-    if (!hasInitAmount && ldk.status === 'ready' && needsAmount) {
+    if (!didInitAmountRef.current && ldk.status === 'ready' && needsAmount) {
       setEditingAmount(true)
-      setHasInitAmount(true)
+      didInitAmountRef.current = true
     }
-  }, [hasInitAmount, ldk.status, needsAmount])
+  }, [ldk.status, needsAmount])
 
   // Generate on-chain address on mount
   useEffect(() => {
@@ -127,7 +129,7 @@ export function Receive() {
           if (requestCounterRef.current !== thisRequest) return
           setInvoice(result.bolt11)
           setPaymentHash(result.paymentHash)
-          setOpeningFeeSats(result.openingFeeMsat / 1000n)
+          setOpeningFeeSats((result.openingFeeMsat + 999n) / 1000n)
           setReceiveState({ step: 'ready', invoicePath: 'jit' })
         })
         .catch((err: unknown) => {
@@ -136,7 +138,7 @@ export function Receive() {
           setInvoice(null)
           setPaymentHash(null)
           setOpeningFeeSats(null)
-          setReceiveState({ step: 'jit-failed' })
+          setReceiveState({ step: 'ready', invoicePath: 'none' })
         })
 
       return
@@ -158,6 +160,9 @@ export function Receive() {
         setInvoiceError('Failed to create Lightning invoice')
       }
       setReceiveState({ step: 'ready', invoicePath: 'none' })
+    }
+    return () => {
+      requestCounterRef.current++
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createInvoice, requestJitInvoice, confirmedAmountSats, peersReconnected])
