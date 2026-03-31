@@ -8,9 +8,10 @@ import {
 import { idbGetAll, idbDeleteBatch } from '../storage/idb'
 import { bytesToHex } from './utils'
 import { broadcastWithRetry } from './traits/broadcaster'
+import { ACTIVE_NETWORK } from './config'
 
 const FEE_TARGET_BLOCKS = 6
-const DEFAULT_FEE_RATE_SAT_VB = 1
+const DEFAULT_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 4 : 1
 const MAX_FEE_RATE_SAT_VB = 500
 
 /**
