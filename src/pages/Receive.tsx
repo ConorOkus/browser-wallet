@@ -308,7 +308,11 @@ export function Receive() {
 
   // QR uses uppercase for optimal alphanumeric QR encoding
   const qrValue = bip321Uri.toUpperCase()
-  const truncated = address ? `bitcoin:${address.slice(0, 8)}...${address.slice(-6)}` : ''
+  const truncated = invoice
+    ? `${invoice.slice(0, 16)}...${invoice.slice(-6)}`
+    : address
+      ? `bitcoin:${address.slice(0, 8)}...${address.slice(-6)}`
+      : ''
 
   return (
     <div

@@ -117,8 +117,21 @@ describe('Receive', () => {
     expect(screen.getByText(/BDK not initialized/)).toBeInTheDocument()
   })
 
-  it('shows truncated address', () => {
+  it('shows truncated invoice when lightning invoice is present', () => {
     renderReceive()
+    expect(screen.getByText(/lntbs1fakeinvoic\.\.\.nvoice/)).toBeInTheDocument()
+  })
+
+  it('shows truncated address when no lightning invoice (on-chain only)', () => {
+    renderReceive(
+      undefined,
+      readyLdkContext({
+        listChannels: vi.fn(() => []),
+        createInvoice: vi.fn(() => {
+          throw new Error('no channels')
+        }),
+      })
+    )
     expect(screen.getByText(/bitcoin:tb1qw508\.\.\.xpjzsx/)).toBeInTheDocument()
   })
 
