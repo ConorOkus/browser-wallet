@@ -30,7 +30,7 @@ function readyLdk(
     listRecentPayments: () => [],
     outboundCapacityMsat: () => 0n,
     lightningBalanceSats: 0n,
-    createInvoice: () => 'lnbc1test',
+    createInvoice: () => ({ bolt11: 'lnbc1test', paymentHash: 'abc123' }),
     requestJitInvoice: () => Promise.resolve({ bolt11: '', openingFeeMsat: 0n, paymentHash: '' }),
     channelChangeCounter: 0,
     peersReconnected: true,

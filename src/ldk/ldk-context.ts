@@ -37,7 +37,10 @@ export type LdkContextValue =
       bdkWallet: Wallet
       bdkEsploraClient: EsploraClient
       setSyncNeeded: (cb: (() => void) | undefined) => void
-      createInvoice: (amountMsat?: bigint, description?: string) => string
+      createInvoice: (
+        amountMsat?: bigint,
+        description?: string
+      ) => { bolt11: string; paymentHash: string }
       requestJitInvoice: (amountMsat: bigint, description: string) => Promise<JitInvoiceResult>
       sendBolt11Payment: (invoice: Bolt11Invoice, amountMsat?: bigint) => Uint8Array
       sendBolt12Payment: (offer: Offer, amountMsat?: bigint, payerNote?: string) => Uint8Array

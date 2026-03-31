@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
 import { useOnchain } from '../onchain/use-onchain'
@@ -7,9 +7,17 @@ import { ScreenHeader } from '../components/ScreenHeader'
 import { Numpad, type NumpadKey } from '../components/Numpad'
 import { numpadDigitReducer } from '../components/numpad-reducer'
 import { formatBtc } from '../utils/format-btc'
-import { buildBip21Uri } from '../onchain/bip21'
+import { buildBip321Uri } from '../onchain/bip321'
 
 const MAX_DIGITS = 8
+
+type InvoicePath = 'none' | 'standard' | 'jit'
+
+type ReceiveState =
+  | { step: 'ready'; invoicePath: InvoicePath }
+  | { step: 'negotiating-jit' }
+  | { step: 'jit-failed' }
+  | { step: 'success'; amountSats: bigint }
 
 export function Receive() {
   const navigate = useNavigate()
@@ -17,20 +25,51 @@ export function Receive() {
   const ldk = useLdk()
   const [address, setAddress] = useState<string | null>(null)
   const [invoice, setInvoice] = useState<string | null>(null)
+  const [paymentHash, setPaymentHash] = useState<string | null>(null)
+  const [openingFeeSats, setOpeningFeeSats] = useState<bigint | null>(null)
   const [addressError, setAddressError] = useState<string | null>(null)
   const [invoiceError, setInvoiceError] = useState<string | null>(null)
+  const [receiveState, setReceiveState] = useState<ReceiveState>({
+    step: 'ready',
+    invoicePath: 'none',
+  })
   const [copied, setCopied] = useState(false)
   const [editingAmount, setEditingAmount] = useState(false)
   const [amountDigits, setAmountDigits] = useState('')
   const [confirmedAmountDigits, setConfirmedAmountDigits] = useState('')
   const overlayRef = useRef<HTMLDivElement>(null)
   const amountButtonRef = useRef<HTMLButtonElement>(null)
+  const processingRef = useRef(false)
+
   const generateAddress = onchain.status === 'ready' ? onchain.generateAddress : null
   const createInvoice = ldk.status === 'ready' ? ldk.createInvoice : null
+  const requestJitInvoice = ldk.status === 'ready' ? ldk.requestJitInvoice : null
+  const listChannels = ldk.status === 'ready' ? ldk.listChannels : null
+  const peersReconnected = ldk.status === 'ready' ? ldk.peersReconnected : false
+  const channelChangeCounter = ldk.status === 'ready' ? ldk.channelChangeCounter : 0
+  const paymentHistory = ldk.status === 'ready' ? ldk.paymentHistory : []
 
   const confirmedAmountSats = confirmedAmountDigits ? BigInt(confirmedAmountDigits) : 0n
   const editingAmountSats = amountDigits ? BigInt(amountDigits) : 0n
 
+  // Compute total inbound capacity from usable channels
+  const totalInboundMsat = useMemo(() => {
+    if (!listChannels) return 0n
+    const channels = listChannels()
+    let total = 0n
+    for (const ch of channels) {
+      if (ch.get_is_usable()) {
+        total += ch.get_inbound_capacity_msat()
+      }
+    }
+    return total
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listChannels, channelChangeCounter])
+
+  const hasUsableChannels =
+    totalInboundMsat > 0n || (listChannels?.().some((ch) => ch.get_is_usable()) ?? false)
+
+  // Generate on-chain address on mount
   useEffect(() => {
     if (generateAddress && address === null && addressError === null) {
       try {
@@ -42,21 +81,104 @@ export function Receive() {
     }
   }, [generateAddress, address, addressError])
 
-  // Generate invoice on mount (zero-amount) and when confirmed amount changes
+  // Generate invoice based on amount and inbound capacity
   useEffect(() => {
     if (!createInvoice) return
-    try {
-      const amountMsat = confirmedAmountSats > 0n ? confirmedAmountSats * 1000n : undefined
-      setInvoice(createInvoice(amountMsat))
+    if (processingRef.current) return
+
+    // Wait for peers to reconnect if channels exist but aren't usable yet
+    if (!peersReconnected && listChannels && listChannels().length > 0) return
+
+    const amountMsat = confirmedAmountSats > 0n ? confirmedAmountSats * 1000n : undefined
+
+    // Determine which path to use
+    const needsJit = amountMsat !== undefined ? totalInboundMsat < amountMsat : !hasUsableChannels
+
+    if (needsJit && amountMsat === undefined) {
+      // JIT needed but no amount -- show on-chain only
+      setInvoice(null)
+      setPaymentHash(null)
+      setOpeningFeeSats(null)
       setInvoiceError(null)
+      setReceiveState({ step: 'ready', invoicePath: 'none' })
+      return
+    }
+
+    if (needsJit && requestJitInvoice && amountMsat !== undefined) {
+      // LSPS2 JIT path
+      processingRef.current = true
+      let stale = false
+
+      setInvoice(null)
+      setPaymentHash(null)
+      setOpeningFeeSats(null)
+      setInvoiceError(null)
+      setReceiveState({ step: 'negotiating-jit' })
+
+      requestJitInvoice(amountMsat, 'zinqq wallet')
+        .then((result) => {
+          if (stale) return
+          setInvoice(result.bolt11)
+          setPaymentHash(result.paymentHash)
+          setOpeningFeeSats(result.openingFeeMsat / 1000n)
+          setReceiveState({ step: 'ready', invoicePath: 'jit' })
+        })
+        .catch((err: unknown) => {
+          if (stale) return
+          console.warn('[Receive] JIT invoice failed:', err)
+          setInvoice(null)
+          setPaymentHash(null)
+          setOpeningFeeSats(null)
+          setReceiveState({ step: 'jit-failed' })
+        })
+        .finally(() => {
+          processingRef.current = false
+        })
+
+      return () => {
+        stale = true
+      }
+    }
+
+    // Standard path
+    try {
+      const result = createInvoice(amountMsat)
+      setInvoice(result.bolt11)
+      setPaymentHash(result.paymentHash)
+      setOpeningFeeSats(null)
+      setInvoiceError(null)
+      setReceiveState({ step: 'ready', invoicePath: 'standard' })
     } catch (err) {
       console.warn('[Receive] Failed to create invoice:', err)
       setInvoice(null)
+      setPaymentHash(null)
       if (confirmedAmountSats > 0n) {
         setInvoiceError('Failed to create Lightning invoice')
       }
+      setReceiveState({ step: 'ready', invoicePath: 'none' })
     }
-  }, [createInvoice, confirmedAmountSats])
+  }, [
+    createInvoice,
+    requestJitInvoice,
+    listChannels,
+    confirmedAmountSats,
+    totalInboundMsat,
+    hasUsableChannels,
+    peersReconnected,
+  ])
+
+  // Watch payment history for success
+  useEffect(() => {
+    if (!paymentHash) return
+    if (receiveState.step === 'success') return
+
+    const match = paymentHistory.find(
+      (p) => p.paymentHash === paymentHash && p.direction === 'inbound' && p.status === 'succeeded'
+    )
+    if (match) {
+      setReceiveState({ step: 'success', amountSats: match.amountMsat / 1000n })
+    }
+  }, [paymentHistory, paymentHash, receiveState.step])
 
   // Focus trap: keep focus within overlay
   useEffect(() => {
@@ -84,9 +206,9 @@ export function Receive() {
     return () => el.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  // Build BIP 21 URI: bitcoin:<ADDRESS>?amount=<BTC>&lightning=<BOLT11>
+  // Build BIP 321 URI
   const bip321Uri = address
-    ? buildBip21Uri({ address, amountSats: confirmedAmountSats, invoice })
+    ? buildBip321Uri({ address, amountSats: confirmedAmountSats, invoice })
     : ''
 
   const handleCopy = useCallback(async () => {
@@ -112,12 +234,10 @@ export function Receive() {
   const handleConfirmAmount = useCallback(() => {
     setConfirmedAmountDigits(amountDigits)
     setEditingAmount(false)
-    // Return focus to amount button after confirming
     requestAnimationFrame(() => amountButtonRef.current?.focus())
   }, [amountDigits])
 
   const handleCancelAmount = useCallback(() => {
-    // Restore digits to confirmed value
     setAmountDigits(confirmedAmountDigits)
     setEditingAmount(false)
     requestAnimationFrame(() => amountButtonRef.current?.focus())
@@ -131,7 +251,6 @@ export function Receive() {
   }, [])
 
   const handleEditAmount = useCallback(() => {
-    // Pre-populate with current confirmed amount
     setAmountDigits(confirmedAmountDigits)
     setEditingAmount(true)
   }, [confirmedAmountDigits])
@@ -152,6 +271,56 @@ export function Receive() {
         <button className="mt-6 text-sm text-accent" onClick={() => void navigate('/')}>
           Close
         </button>
+      </div>
+    )
+  }
+
+  // Waiting for peers to reconnect
+  if (!peersReconnected && listChannels && listChannels().length > 0) {
+    return (
+      <div
+        ref={overlayRef}
+        className="fixed inset-0 z-200 mx-auto flex max-w-[430px] flex-col bg-dark text-on-dark"
+      >
+        <ScreenHeader title="Request" backTo="/" />
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-[var(--color-on-dark-muted)]">Reconnecting...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Success screen
+  if (receiveState.step === 'success') {
+    return (
+      <div
+        ref={overlayRef}
+        className="fixed inset-0 z-200 mx-auto flex max-w-[430px] flex-col bg-dark text-on-dark"
+      >
+        <ScreenHeader title="Request" backTo="/" />
+        <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
+          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-green-500/20">
+            <svg
+              className="h-10 w-10 text-green-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <p className="text-lg font-semibold text-on-dark">Payment received</p>
+          <p className="font-display text-4xl font-bold text-on-dark">
+            {formatBtc(receiveState.amountSats)}
+          </p>
+          <button
+            className="mt-4 rounded-xl bg-accent px-8 py-3 text-sm font-semibold text-white transition-transform active:scale-95"
+            onClick={() => void navigate('/')}
+          >
+            Done
+          </button>
+        </div>
       </div>
     )
   }
@@ -203,6 +372,13 @@ export function Receive() {
           <div className="flex flex-1 flex-col items-center justify-center gap-8 px-8">
             {addressError && <p className="text-sm text-red-400">{addressError}</p>}
             {invoiceError && <p className="text-sm text-red-400">{invoiceError}</p>}
+
+            {receiveState.step === 'negotiating-jit' && (
+              <p className="text-sm text-[var(--color-on-dark-muted)]">
+                Setting up Lightning receive...
+              </p>
+            )}
+
             {address && (
               <>
                 {confirmedAmountSats > 0n && (
@@ -220,8 +396,20 @@ export function Receive() {
                   className="flex h-[260px] w-[260px] items-center justify-center rounded-2xl bg-white p-5"
                   aria-label={`QR code for Bitcoin address ${address}${confirmedAmountSats > 0n ? `, amount ${formatBtc(confirmedAmountSats)}` : ''}`}
                 >
-                  <QRCodeSVG value={qrValue} size={220} />
+                  {receiveState.step === 'negotiating-jit' ? (
+                    <p className="text-sm text-gray-400">Negotiating...</p>
+                  ) : (
+                    <QRCodeSVG value={qrValue} size={220} />
+                  )}
                 </div>
+
+                {openingFeeSats !== null &&
+                  receiveState.step === 'ready' &&
+                  receiveState.invoicePath === 'jit' && (
+                    <p className="text-xs text-[var(--color-on-dark-muted)]">
+                      Channel open fee: {formatBtc(openingFeeSats)}
+                    </p>
+                  )}
 
                 <div className="flex max-w-full items-center gap-3 rounded-full bg-dark-elevated px-5 py-3">
                   <span className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-sm text-[var(--color-on-dark-muted)]">

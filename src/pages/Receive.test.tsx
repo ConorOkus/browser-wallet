@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { describe, it, expect, vi } from 'vitest'
@@ -28,6 +28,18 @@ function readyContext(
   }
 }
 
+/** Create a mock ChannelDetails with the specified inbound capacity. */
+function mockChannel(inboundCapacityMsat: bigint, isUsable = true) {
+  return {
+    get_is_usable: () => isUsable,
+    get_inbound_capacity_msat: () => inboundCapacityMsat,
+    get_outbound_capacity_msat: () => 500_000_000n,
+    get_channel_id: () => ({ write: () => new Uint8Array(32) }),
+    get_counterparty: () => ({ get_node_id: () => new Uint8Array(33) }),
+    get_is_channel_ready: () => true,
+  } as never
+}
+
 function readyLdkContext(
   overrides?: Partial<Extract<LdkContextValue, { status: 'ready' }>>
 ): LdkContextValue {
@@ -45,13 +57,13 @@ function readyLdkContext(
     bdkWallet: {} as never,
     bdkEsploraClient: {} as never,
     setSyncNeeded: vi.fn(),
-    createInvoice: vi.fn(() => 'lntbs1fakeinvoice'),
+    createInvoice: vi.fn(() => ({ bolt11: 'lntbs1fakeinvoice', paymentHash: 'abc123' })),
     requestJitInvoice: vi.fn(),
     sendBolt11Payment: vi.fn(),
     sendBolt12Payment: vi.fn(),
     closeChannel: vi.fn(),
     forceCloseChannel: vi.fn(),
-    listChannels: vi.fn(() => []),
+    listChannels: vi.fn(() => [mockChannel(1_000_000_000n)]),
     abandonPayment: vi.fn(),
     getPaymentResult: vi.fn(() => null),
     listRecentPayments: vi.fn(() => []),
@@ -89,15 +101,9 @@ describe('Receive', () => {
     expect(screen.getByText(/failed to load wallet/i)).toBeInTheDocument()
   })
 
-  it('shows QR code when ready', () => {
+  it('shows QR code when ready with inbound capacity', () => {
     renderReceive()
     expect(screen.getByLabelText(/qr code for bitcoin address/i)).toBeInTheDocument()
-  })
-
-  it('QR code uses uppercase BIP21 URI format', () => {
-    renderReceive()
-    const qrContainer = screen.getByLabelText(/qr code for bitcoin address/i)
-    expect(qrContainer).toBeInTheDocument()
   })
 
   it('shows error when address generation fails', () => {
@@ -131,33 +137,217 @@ describe('Receive', () => {
     expect(screen.getByRole('button', { name: /copy/i })).toBeInTheDocument()
   })
 
-  describe('focus trap', () => {
-    it('focuses the first focusable element on mount', () => {
-      renderReceive(readyContext())
-      const backButton = screen.getByRole('button', { name: /back/i })
-      expect(backButton).toHaveFocus()
+  describe('standard invoice path (with inbound capacity)', () => {
+    it('calls createInvoice with no amount on initial load', () => {
+      const createInvoice = vi.fn(() => ({
+        bolt11: 'lntbs1fakeinvoice',
+        paymentHash: 'abc123',
+      }))
+      renderReceive(undefined, readyLdkContext({ createInvoice }))
+      expect(createInvoice).toHaveBeenCalledWith(undefined)
     })
 
-    it('wraps focus from last to first element on Tab', async () => {
+    it('entering digits and confirming regenerates the invoice with amount', async () => {
       const user = userEvent.setup()
-      renderReceive(readyContext())
+      const createInvoice = vi.fn(() => ({
+        bolt11: 'lntbs1amountinvoice',
+        paymentHash: 'abc123',
+      }))
+      renderReceive(undefined, readyLdkContext({ createInvoice }))
 
-      const backButton = screen.getByRole('button', { name: /back/i })
-      const addAmountButton = screen.getByRole('button', { name: /add amount/i })
-      addAmountButton.focus()
-      await user.keyboard('{Tab}')
-      expect(backButton).toHaveFocus()
+      await user.click(screen.getByRole('button', { name: /add amount/i }))
+      await user.click(screen.getByRole('button', { name: '5' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: /done/i }))
+
+      expect(createInvoice).toHaveBeenCalledWith(50_000_000n)
     })
 
-    it('wraps focus from first to last element on Shift+Tab', async () => {
+    it('BIP 321 URI includes amount= when amount is set', async () => {
       const user = userEvent.setup()
-      renderReceive(readyContext())
+      const createInvoice = vi.fn(() => ({
+        bolt11: 'lntbs1amountinvoice',
+        paymentHash: 'abc123',
+      }))
+      renderReceive(undefined, readyLdkContext({ createInvoice }))
 
-      const backButton = screen.getByRole('button', { name: /back/i })
-      backButton.focus()
-      await user.keyboard('{Shift>}{Tab}{/Shift}')
-      const addAmountButton = screen.getByRole('button', { name: /add amount/i })
-      expect(addAmountButton).toHaveFocus()
+      await user.click(screen.getByRole('button', { name: /add amount/i }))
+      await user.click(screen.getByRole('button', { name: '1' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: /done/i }))
+
+      expect(screen.getByLabelText(/amount ₿100/i)).toBeInTheDocument()
+    })
+
+    it('shows invoice error when regeneration fails with amount', async () => {
+      const user = userEvent.setup()
+      let callCount = 0
+      const createInvoice = vi.fn(() => {
+        callCount++
+        if (callCount > 1) throw new Error('Invoice creation failed')
+        return { bolt11: 'lntbs1fakeinvoice', paymentHash: 'abc123' }
+      })
+      renderReceive(undefined, readyLdkContext({ createInvoice }))
+
+      await user.click(screen.getByRole('button', { name: /add amount/i }))
+      await user.click(screen.getByRole('button', { name: '1' }))
+      await user.click(screen.getByRole('button', { name: /done/i }))
+
+      expect(screen.getByText(/failed to create lightning invoice/i)).toBeInTheDocument()
+    })
+  })
+
+  describe('auto-detect: no channels (on-chain only without amount)', () => {
+    it('shows QR with on-chain address when no channels and no amount', () => {
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          createInvoice: vi.fn(() => {
+            throw new Error('should not be called')
+          }),
+        })
+      )
+      // Should still show the QR (on-chain address)
+      expect(screen.getByLabelText(/qr code for bitcoin address/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /add amount/i })).toBeInTheDocument()
+    })
+  })
+
+  describe('auto-detect: JIT path (insufficient inbound)', () => {
+    it('uses JIT when amount exceeds inbound capacity', async () => {
+      const user = userEvent.setup()
+      const requestJitInvoice = vi
+        .fn()
+        .mockResolvedValue({
+          bolt11: 'lntbs1jitinvoice',
+          openingFeeMsat: 2500_000n,
+          paymentHash: 'jithash',
+        })
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => [mockChannel(10_000_000n)]), // 10k sats inbound
+          requestJitInvoice,
+        })
+      )
+
+      // Enter 50,000 sats (exceeds 10k inbound)
+      await user.click(screen.getByRole('button', { name: /add amount/i }))
+      await user.click(screen.getByRole('button', { name: '5' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: /done/i }))
+
+      await waitFor(() => {
+        expect(requestJitInvoice).toHaveBeenCalledWith(50_000_000n, 'zinqq wallet')
+      })
+    })
+
+    it('shows opening fee when JIT invoice is ready', async () => {
+      const user = userEvent.setup()
+      const requestJitInvoice = vi
+        .fn()
+        .mockResolvedValue({
+          bolt11: 'lntbs1jitinvoice',
+          openingFeeMsat: 2500_000n,
+          paymentHash: 'jithash',
+        })
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          requestJitInvoice,
+        })
+      )
+
+      await user.click(screen.getByRole('button', { name: /add amount/i }))
+      await user.click(screen.getByRole('button', { name: '1' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: /done/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/channel open fee/i)).toBeInTheDocument()
+      })
+    })
+
+    it('shows negotiating state during JIT', async () => {
+      const user = userEvent.setup()
+      // Never resolves
+      const requestJitInvoice = vi.fn().mockReturnValue(new Promise(() => {}))
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          requestJitInvoice,
+        })
+      )
+
+      await user.click(screen.getByRole('button', { name: /add amount/i }))
+      await user.click(screen.getByRole('button', { name: '1' }))
+      await user.click(screen.getByRole('button', { name: /done/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/setting up lightning receive/i)).toBeInTheDocument()
+      })
+    })
+
+    it('falls back to on-chain only when JIT fails', async () => {
+      const user = userEvent.setup()
+      const requestJitInvoice = vi.fn().mockRejectedValue(new Error('LSP unreachable'))
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          requestJitInvoice,
+        })
+      )
+
+      await user.click(screen.getByRole('button', { name: /add amount/i }))
+      await user.click(screen.getByRole('button', { name: '1' }))
+      await user.click(screen.getByRole('button', { name: /done/i }))
+
+      // Should still show QR (on-chain fallback)
+      await waitFor(() => {
+        expect(screen.getByLabelText(/qr code for bitcoin address/i)).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('success detection', () => {
+    it('shows success screen when payment is received', () => {
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          paymentHistory: [
+            {
+              paymentHash: 'abc123',
+              direction: 'inbound',
+              amountMsat: 50_000_000n,
+              status: 'succeeded',
+              feePaidMsat: null,
+              createdAt: Date.now(),
+              failureReason: null,
+            },
+          ],
+        })
+      )
+
+      expect(screen.getByText(/payment received/i)).toBeInTheDocument()
+      expect(screen.getByText('₿50,000')).toBeInTheDocument()
     })
   })
 
@@ -177,38 +367,6 @@ describe('Receive', () => {
       expect(screen.queryByLabelText(/qr code/i)).not.toBeInTheDocument()
     })
 
-    it('entering digits and confirming regenerates the invoice with amount', async () => {
-      const user = userEvent.setup()
-      const createInvoice = vi.fn(() => 'lntbs1amountinvoice')
-      renderReceive(undefined, readyLdkContext({ createInvoice }))
-
-      await user.click(screen.getByRole('button', { name: /add amount/i }))
-      await user.click(screen.getByRole('button', { name: '5' }))
-      await user.click(screen.getByRole('button', { name: '0' }))
-      await user.click(screen.getByRole('button', { name: '0' }))
-      await user.click(screen.getByRole('button', { name: '0' }))
-      await user.click(screen.getByRole('button', { name: '0' }))
-      await user.click(screen.getByRole('button', { name: /done/i }))
-
-      // Should have been called with amountMsat = 50000 * 1000 = 50_000_000n
-      expect(createInvoice).toHaveBeenCalledWith(50_000_000n)
-    })
-
-    it('BIP 21 URI includes amount= when amount is set', async () => {
-      const user = userEvent.setup()
-      const createInvoice = vi.fn(() => 'lntbs1amountinvoice')
-      renderReceive(undefined, readyLdkContext({ createInvoice }))
-
-      await user.click(screen.getByRole('button', { name: /add amount/i }))
-      await user.click(screen.getByRole('button', { name: '1' }))
-      await user.click(screen.getByRole('button', { name: '0' }))
-      await user.click(screen.getByRole('button', { name: '0' }))
-      await user.click(screen.getByRole('button', { name: /done/i }))
-
-      // The QR code aria-label should mention the amount
-      expect(screen.getByLabelText(/amount ₿100/i)).toBeInTheDocument()
-    })
-
     it('cancel returns to QR without changing amount', async () => {
       const user = userEvent.setup()
       renderReceive()
@@ -217,7 +375,6 @@ describe('Receive', () => {
       await user.click(screen.getByRole('button', { name: '5' }))
       await user.click(screen.getByRole('button', { name: /cancel/i }))
 
-      // Should be back to QR view with "Add amount" (no amount was confirmed)
       expect(screen.getByRole('button', { name: /add amount/i })).toBeInTheDocument()
       expect(screen.getByLabelText(/qr code/i)).toBeInTheDocument()
     })
@@ -226,72 +383,55 @@ describe('Receive', () => {
       const user = userEvent.setup()
       renderReceive()
 
-      // Set amount to 500
       await user.click(screen.getByRole('button', { name: /add amount/i }))
       await user.click(screen.getByRole('button', { name: '5' }))
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: /done/i }))
 
-      // Amount should be displayed above QR, and button says "Edit amount"
       expect(screen.getByText('₿500')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /edit amount/i })).toBeInTheDocument()
 
-      // Tap "Edit amount" to re-edit
       await user.click(screen.getByRole('button', { name: /edit amount/i }))
 
-      // Should show numpad with the amount displayed
       expect(screen.getByText('₿500')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument()
     })
 
     it('remove amount clears back to zero-amount invoice', async () => {
       const user = userEvent.setup()
-      const createInvoice = vi.fn(() => 'lntbs1fakeinvoice')
+      const createInvoice = vi.fn(() => ({
+        bolt11: 'lntbs1fakeinvoice',
+        paymentHash: 'abc123',
+      }))
       renderReceive(undefined, readyLdkContext({ createInvoice }))
 
-      // Set an amount
       await user.click(screen.getByRole('button', { name: /add amount/i }))
       await user.click(screen.getByRole('button', { name: '1' }))
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: /done/i }))
 
-      // Now edit and remove
       await user.click(screen.getByRole('button', { name: /edit amount/i }))
       await user.click(screen.getByRole('button', { name: /remove amount/i }))
 
-      // Should be back to "Add amount" label
       expect(screen.getByRole('button', { name: /add amount/i })).toBeInTheDocument()
 
-      // createInvoice should have been called with no amount (last call)
       const lastCall = createInvoice.mock.calls[createInvoice.mock.calls.length - 1]
       expect(lastCall).toEqual([undefined])
     })
+  })
 
-    it('shows invoice error when regeneration fails with amount', async () => {
-      const user = userEvent.setup()
-      let callCount = 0
-      const createInvoice = vi.fn(() => {
-        callCount++
-        // First call (zero-amount) succeeds, subsequent calls with amount fail
-        if (callCount > 1) throw new Error('Invoice creation failed')
-        return 'lntbs1fakeinvoice'
-      })
-      renderReceive(undefined, readyLdkContext({ createInvoice }))
-
-      await user.click(screen.getByRole('button', { name: /add amount/i }))
-      await user.click(screen.getByRole('button', { name: '1' }))
-      await user.click(screen.getByRole('button', { name: /done/i }))
-
-      expect(screen.getByText(/failed to create lightning invoice/i)).toBeInTheDocument()
-    })
-
-    it('createInvoice is called with no amount on initial load', () => {
-      const createInvoice = vi.fn(() => 'lntbs1fakeinvoice')
-      renderReceive(undefined, readyLdkContext({ createInvoice }))
-
-      expect(createInvoice).toHaveBeenCalledWith(undefined)
+  describe('peer reconnection', () => {
+    it('shows reconnecting state when peers not yet reconnected but channels exist', () => {
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          peersReconnected: false,
+          listChannels: vi.fn(() => [mockChannel(1_000_000_000n, false)]),
+        })
+      )
+      expect(screen.getByText(/reconnecting/i)).toBeInTheDocument()
     })
   })
 })

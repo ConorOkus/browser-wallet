@@ -191,30 +191,40 @@ export function LdkProvider({
     map.set(key, value)
   }
 
-  const createInvoice = useCallback((amountMsat?: bigint, description = 'Zinqq Wallet'): string => {
-    const node = nodeRef.current
-    if (!node) throw new Error('Node not initialized')
+  const createInvoice = useCallback(
+    (
+      amountMsat?: bigint,
+      description = 'Zinqq Wallet'
+    ): { bolt11: string; paymentHash: string } => {
+      const node = nodeRef.current
+      if (!node) throw new Error('Node not initialized')
 
-    const amountOption =
-      amountMsat != null
-        ? Option_u64Z.constructor_some(amountMsat)
-        : Option_u64Z_None.constructor_none()
+      const amountOption =
+        amountMsat != null
+          ? Option_u64Z.constructor_some(amountMsat)
+          : Option_u64Z_None.constructor_none()
 
-    const result = UtilMethods.constructor_create_invoice_from_channelmanager(
-      node.channelManager,
-      amountOption,
-      description,
-      3600, // 1 hour expiry
-      Option_u16Z_None.constructor_none()
-    )
+      const result = UtilMethods.constructor_create_invoice_from_channelmanager(
+        node.channelManager,
+        amountOption,
+        description,
+        3600, // 1 hour expiry
+        Option_u16Z_None.constructor_none()
+      )
 
-    if (!(result instanceof Result_Bolt11InvoiceSignOrCreationErrorZ_OK)) {
-      console.error('[ldk] create_invoice failed:', result)
-      throw new Error('Failed to create invoice')
-    }
+      if (!(result instanceof Result_Bolt11InvoiceSignOrCreationErrorZ_OK)) {
+        console.error('[ldk] create_invoice failed:', result)
+        throw new Error('Failed to create invoice')
+      }
 
-    return result.res.to_str()
-  }, [])
+      const invoice = result.res
+      return {
+        bolt11: invoice.to_str(),
+        paymentHash: bytesToHex(invoice.payment_hash()),
+      }
+    },
+    []
+  )
 
   const requestJitInvoice = useCallback(
     async (amountMsat: bigint, description: string): Promise<JitInvoiceResult> => {
