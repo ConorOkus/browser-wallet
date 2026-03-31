@@ -287,7 +287,7 @@ describe('Receive', () => {
       await user.click(screen.getByRole('button', { name: /request/i }))
 
       await waitFor(() => {
-        expect(screen.getByText(/channel open fee/i)).toBeInTheDocument()
+        expect(screen.getByText(/setup fee/i)).toBeInTheDocument()
       })
     })
 
