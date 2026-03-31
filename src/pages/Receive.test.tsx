@@ -122,17 +122,16 @@ describe('Receive', () => {
     expect(screen.getByText(/lntbs1fakeinvoic\.\.\.nvoice/)).toBeInTheDocument()
   })
 
-  it('shows truncated address when no lightning invoice (on-chain only)', () => {
+  it('opens numpad automatically when no channels exist', () => {
     renderReceive(
       undefined,
       readyLdkContext({
         listChannels: vi.fn(() => []),
-        createInvoice: vi.fn(() => {
-          throw new Error('no channels')
-        }),
       })
     )
-    expect(screen.getByText(/bitcoin:tb1qw508\.\.\.xpjzsx/)).toBeInTheDocument()
+    // Numpad is open, requesting an amount
+    expect(screen.getByRole('button', { name: /request/i })).toBeInTheDocument()
+    expect(screen.queryByLabelText(/qr code/i)).not.toBeInTheDocument()
   })
 
   it('shows Request heading', () => {
@@ -214,20 +213,17 @@ describe('Receive', () => {
     })
   })
 
-  describe('auto-detect: no channels (on-chain only without amount)', () => {
-    it('shows QR with on-chain address when no channels and no amount', () => {
+  describe('auto-detect: no channels (amount required)', () => {
+    it('opens numpad when no channels exist', () => {
       renderReceive(
         undefined,
         readyLdkContext({
           listChannels: vi.fn(() => []),
-          createInvoice: vi.fn(() => {
-            throw new Error('should not be called')
-          }),
         })
       )
-      // Should still show the QR (on-chain address)
-      expect(screen.getByLabelText(/qr code for bitcoin address/i)).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /add amount/i })).toBeInTheDocument()
+      // Numpad shown with "Request" label — amount is required for JIT
+      expect(screen.getByRole('button', { name: /request/i })).toBeInTheDocument()
+      expect(screen.queryByLabelText(/qr code/i)).not.toBeInTheDocument()
     })
   })
 
@@ -282,13 +278,13 @@ describe('Receive', () => {
         })
       )
 
-      await user.click(screen.getByRole('button', { name: /add amount/i }))
+      // Numpad already open (no channels → amount required)
       await user.click(screen.getByRole('button', { name: '1' }))
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: '0' }))
-      await user.click(screen.getByRole('button', { name: /done/i }))
+      await user.click(screen.getByRole('button', { name: /request/i }))
 
       await waitFor(() => {
         expect(screen.getByText(/channel open fee/i)).toBeInTheDocument()
@@ -308,9 +304,9 @@ describe('Receive', () => {
         })
       )
 
-      await user.click(screen.getByRole('button', { name: /add amount/i }))
+      // Numpad already open
       await user.click(screen.getByRole('button', { name: '1' }))
-      await user.click(screen.getByRole('button', { name: /done/i }))
+      await user.click(screen.getByRole('button', { name: /request/i }))
 
       await waitFor(() => {
         expect(screen.getByText(/setting up lightning receive/i)).toBeInTheDocument()
@@ -329,9 +325,9 @@ describe('Receive', () => {
         })
       )
 
-      await user.click(screen.getByRole('button', { name: /add amount/i }))
+      // Numpad already open
       await user.click(screen.getByRole('button', { name: '1' }))
-      await user.click(screen.getByRole('button', { name: /done/i }))
+      await user.click(screen.getByRole('button', { name: /request/i }))
 
       // Should still show QR (on-chain fallback)
       await waitFor(() => {

@@ -51,6 +51,20 @@ export function Receive() {
   const confirmedAmountSats = confirmedAmountDigits ? BigInt(confirmedAmountDigits) : 0n
   const editingAmountSats = amountDigits ? BigInt(amountDigits) : 0n
 
+  // No usable channels → JIT is required → amount is required
+  const needsAmount =
+    !listChannels ||
+    !listChannels().some((ch) => ch.get_is_usable())
+
+  // Start with numpad open when amount is required (first receive / no channels)
+  const [hasInitAmount, setHasInitAmount] = useState(false)
+  useEffect(() => {
+    if (!hasInitAmount && ldk.status === 'ready' && needsAmount) {
+      setEditingAmount(true)
+      setHasInitAmount(true)
+    }
+  }, [hasInitAmount, ldk.status, needsAmount])
+
   // Generate on-chain address on mount
   useEffect(() => {
     if (generateAddress && address === null && addressError === null) {
@@ -227,9 +241,14 @@ export function Receive() {
   const handleRemoveAmount = useCallback(() => {
     setAmountDigits('')
     setConfirmedAmountDigits('')
-    setEditingAmount(false)
-    requestAnimationFrame(() => amountButtonRef.current?.focus())
-  }, [])
+    if (needsAmount) {
+      // Stay on numpad — amount is required
+      setEditingAmount(true)
+    } else {
+      setEditingAmount(false)
+      requestAnimationFrame(() => amountButtonRef.current?.focus())
+    }
+  }, [needsAmount])
 
   const handleEditAmount = useCallback(() => {
     setAmountDigits(confirmedAmountDigits)
@@ -324,12 +343,14 @@ export function Receive() {
       {editingAmount ? (
         <div className="flex flex-1 flex-col">
           <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8">
-            <button
-              className="text-sm text-[var(--color-on-dark-muted)] transition-colors active:text-accent"
-              onClick={handleCancelAmount}
-            >
-              Cancel
-            </button>
+            {(!needsAmount || confirmedAmountSats > 0n) && (
+              <button
+                className="text-sm text-[var(--color-on-dark-muted)] transition-colors active:text-accent"
+                onClick={handleCancelAmount}
+              >
+                Cancel
+              </button>
+            )}
             <p
               className={`font-display font-bold text-on-dark ${amountDigits.length > 5 ? 'text-5xl' : 'text-7xl'}`}
               aria-live="polite"
@@ -348,8 +369,8 @@ export function Receive() {
           <Numpad
             onKey={handleNumpadKey}
             onNext={handleConfirmAmount}
-            nextDisabled={editingAmountSats <= 0n && confirmedAmountSats <= 0n}
-            nextLabel="Done"
+            nextDisabled={editingAmountSats <= 0n}
+            nextLabel={needsAmount && confirmedAmountSats <= 0n ? 'Request' : 'Done'}
           />
         </div>
       ) : (
