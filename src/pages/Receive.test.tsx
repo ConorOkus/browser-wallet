@@ -230,13 +230,11 @@ describe('Receive', () => {
   describe('auto-detect: JIT path (insufficient inbound)', () => {
     it('uses JIT when amount exceeds inbound capacity', async () => {
       const user = userEvent.setup()
-      const requestJitInvoice = vi
-        .fn()
-        .mockResolvedValue({
-          bolt11: 'lntbs1jitinvoice',
-          openingFeeMsat: 2500_000n,
-          paymentHash: 'jithash',
-        })
+      const requestJitInvoice = vi.fn().mockResolvedValue({
+        bolt11: 'lntbs1jitinvoice',
+        openingFeeMsat: 2500_000n,
+        paymentHash: 'jithash',
+      })
 
       renderReceive(
         undefined,
@@ -262,13 +260,11 @@ describe('Receive', () => {
 
     it('shows opening fee when JIT invoice is ready', async () => {
       const user = userEvent.setup()
-      const requestJitInvoice = vi
-        .fn()
-        .mockResolvedValue({
-          bolt11: 'lntbs1jitinvoice',
-          openingFeeMsat: 2500_000n,
-          paymentHash: 'jithash',
-        })
+      const requestJitInvoice = vi.fn().mockResolvedValue({
+        bolt11: 'lntbs1jitinvoice',
+        openingFeeMsat: 2500_000n,
+        paymentHash: 'jithash',
+      })
 
       renderReceive(
         undefined,

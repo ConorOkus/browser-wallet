@@ -1,5 +1,5 @@
 ---
-title: "feat: Integrate LSPS2 JIT receive into default request flow"
+title: 'feat: Integrate LSPS2 JIT receive into default request flow'
 type: feat
 status: completed
 date: 2026-03-31
@@ -40,6 +40,7 @@ Compute inline in `Receive.tsx` using `ldk.listChannels()` -- no need to add a n
 ### Peer Reconnection Timing
 
 Before `peersReconnected === true`, channels may exist but not be usable yet. To avoid routing returning users to JIT unnecessarily:
+
 - If `peersReconnected` is false but channels exist (from `listChannels()`), show a brief "Reconnecting..." state
 - Proceed with current state after 5 seconds
 
@@ -49,10 +50,10 @@ The merged page needs a clear state type combining both current pages:
 
 ```typescript
 type ReceiveState =
-  | { step: 'loading' }                    // wallet loading or peers reconnecting
+  | { step: 'loading' } // wallet loading or peers reconnecting
   | { step: 'ready'; invoicePath: 'none' | 'standard' | 'jit' }
-  | { step: 'negotiating-jit' }            // LSPS2 negotiation in progress
-  | { step: 'jit-failed' }                 // on-chain fallback only
+  | { step: 'negotiating-jit' } // LSPS2 negotiation in progress
+  | { step: 'jit-failed' } // on-chain fallback only
   | { step: 'success'; amountSats: bigint } // payment received
 ```
 
@@ -74,6 +75,7 @@ On mount or amount change:
 ### Success Detection
 
 Both paths need paymentHash tracking:
+
 - **JIT path**: `requestJitInvoice` already returns `paymentHash`
 - **Standard path**: Parse paymentHash from the returned BOLT11 string, or modify `createInvoice()` to return `{ bolt11, paymentHash }` -- the latter is cleaner
 
@@ -82,12 +84,14 @@ Watch `paymentHistory` for a matching inbound payment with `status === 'succeede
 ### BIP 321 URI
 
 The existing `buildBip21Uri()` already produces BIP 321 compliant URIs (`bitcoin:<address>?amount=<btc>&lightning=<bolt11>`). BIP 321 formally standardizes the `lightning=` parameter that BIP 21 implementations already support. Changes needed:
+
 - Rename function/file from `bip21` to `bip321` for accuracy
 - Update comments and variable names
 
 ### Amount Editing Across Boundaries
 
 When the user edits the amount and crosses the standard/JIT threshold:
+
 - Clear the current invoice immediately (don't show stale data)
 - If crossing from standard to JIT: start async negotiation, show spinner
 - If crossing from JIT to standard: cancel in-flight negotiation via stale flag, generate sync invoice
