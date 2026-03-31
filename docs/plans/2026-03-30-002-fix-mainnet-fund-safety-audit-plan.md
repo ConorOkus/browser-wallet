@@ -1,5 +1,5 @@
 ---
-title: "fix: Mainnet fund safety audit"
+title: 'fix: Mainnet fund safety audit'
 type: fix
 status: active
 date: 2026-03-30
@@ -15,6 +15,7 @@ deepened: 2026-03-30
 **Research agents used:** Security Sentinel, Architecture Strategist, TypeScript Reviewer, Data Integrity Guardian, Performance Oracle, Best Practices Researcher, LDK Docs (Context7), Institutional Learnings
 
 ### Key Improvements from Deepening
+
 1. **2 new Critical bugs discovered:** Hardcoded `'signet'` in BDK descriptor derivation (`wallet/context.tsx:21`) and CSP `connect-src` missing mainnet domains (`index.html`)
 2. **PR4b conflict resolution redesigned:** "Accept server version" is unsafe for channel monitors — must compare `update_id` to prevent revoked state broadcast
 3. **PR3 code examples corrected:** Fixed `this.seed` reference (closure, not class), `peekAddressAtIndex` return type, HMAC domain separation, u128 handling
@@ -23,6 +24,7 @@ deepened: 2026-03-30
 6. **Institutional learnings applied:** BDK descriptor version bytes, eager BDK init order, WASM u128 asymmetry warning
 
 ### New Considerations Discovered
+
 - Mnemonic stored as plaintext in IDB — document as accepted risk with follow-up
 - LDK `MinAllowed*` fee rate defaults should be raised to match LDK docs (2,500 sat/kw)
 - SpendableOutputs persistence crash window remains unaddressed
@@ -39,6 +41,7 @@ Organized into 6 PRs in strict dependency order. PRs 1-4 are mainnet launch bloc
 ## Problem Statement / Motivation
 
 Zinq is preparing for mainnet launch. The audit (see brainstorm: `docs/brainstorms/2026-03-30-mainnet-fund-safety-audit-brainstorm.md`) found:
+
 - **7 Critical issues**: Hardcoded signet values, dangerous fee defaults, empty wsProxy config, unimplemented anchor fee bumping
 - **10 High issues**: Silent broadcast failures, non-deterministic channel key IDs, persistence races, VSS recovery timeouts
 - **10 Medium issues**: Fire-and-forget payment persistence, sweep concurrency, conflict retry loops
@@ -52,6 +55,7 @@ Real money is at stake. Every Critical and High issue must be resolved before ma
 6 PRs in dependency order, each addressing a coherent set of related issues. Critical items first, defense-in-depth improvements later.
 
 **PR dependency graph:**
+
 ```
 PR1 (mainnet blockers) ──> PR2 (broadcast/persist safety) ──> PR3 (channel recovery)
                                                                      │
@@ -74,6 +78,7 @@ Fixes C1, C2, C3, C4, C5, C6, C7 (disable), H10 from the brainstorm, plus 2 new 
 **File:** `src/ldk/payment-input.ts`
 
 **C1 — BOLT 11 currency check (line 97):**
+
 ```typescript
 // Before:
 if (invoice.currency() !== Currency.LDKCurrency_Signet)
@@ -103,6 +108,7 @@ const ON_CHAIN_RE: Record<NetworkId, RegExp> = {
 ### Research Insights (C2)
 
 **From TypeScript Review:** The original plan's mainnet regex `/^(bc1|[13])[a-zA-Z0-9]+$/` is too permissive — it accepts invalid Base58 characters (`0`, `O`, `I`, `l`) and has no length constraints. The improved regex above:
+
 - Bech32 (`bc1`): lowercase only, min 25 chars (as per BIP 173)
 - Base58 (`1`, `3`): excludes confusable characters per Base58Check alphabet, 25-34 char length
 - Removes `tpub` from signet regex (extended public keys are not addresses)
@@ -120,6 +126,7 @@ After extracting the address from the URI, validate it against the network-aware
 **File:** `src/onchain/context.tsx`
 
 **C5 — Default fee rate (line 28):**
+
 ```typescript
 // Before:
 const DEFAULT_FEE_RATE_SAT_VB = 1n
@@ -129,6 +136,7 @@ const DEFAULT_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 4n : 1n
 ```
 
 **H10 — Minimum fee check (after line 182):**
+
 ```typescript
 const MIN_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 2n : 1n
 if (feeRateSatVb < MIN_FEE_RATE_SAT_VB) {
@@ -139,6 +147,7 @@ if (feeRateSatVb < MIN_FEE_RATE_SAT_VB) {
 **Also update sweep fee default:**
 
 **File:** `src/ldk/sweep.ts` (line 14)
+
 ```typescript
 const DEFAULT_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 4 : 1
 ```
@@ -148,6 +157,7 @@ const DEFAULT_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 4 : 1
 **From LDK Docs:** LDK recommends `MinAllowedAnchorChannelRemoteFee` at 2,500 sat/kw (10 sat/vB) and `MinAllowedNonAnchorChannelRemoteFee` similarly. The current defaults in `fee-estimator.ts` are 1,000 sat/kw (4 sat/vB) — too low for mainnet. Update:
 
 **File:** `src/ldk/traits/fee-estimator.ts` (lines 7-8)
+
 ```typescript
 // Raise to LDK-recommended values for mainnet safety
 [ConfirmationTarget.LDKConfirmationTarget_MinAllowedAnchorChannelRemoteFee]: 2_500,
@@ -161,11 +171,12 @@ const DEFAULT_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 4 : 1
 **File:** `src/ldk/config.ts`
 
 Add validation after line 69:
+
 ```typescript
 if (!LDK_CONFIG.wsProxyUrl) {
   throw new Error(
     `[LDK Config] wsProxyUrl is empty for ${ACTIVE_NETWORK}. ` +
-    'Set VITE_WS_PROXY_URL to the WebSocket proxy endpoint.'
+      'Set VITE_WS_PROXY_URL to the WebSocket proxy endpoint.'
   )
 }
 ```
@@ -193,9 +204,12 @@ handshakeConfig.set_negotiate_anchors_zero_fee_htlc_tx(false)
 **From Best Practices:** For LSPs using 0-conf JIT channels with anchors, there is a trust model where the mobile node lets the LSP handle force closes. However, since Zinq is non-custodial, we should not rely on this. Disabling anchors is the correct call until CPFP is implemented.
 
 **Pre-existing anchor channel transition:** If any channels were already opened with anchor outputs (unlikely on fresh mainnet), force-closing them will emit `BumpTransaction` events that are silently dropped. Add a log at CRITICAL level:
+
 ```typescript
-console.error('[LDK Event] CRITICAL: BumpTransaction received but CPFP not implemented. ' +
-  'Anchor channel force-close transaction may be stuck.')
+console.error(
+  '[LDK Event] CRITICAL: BumpTransaction received but CPFP not implemented. ' +
+    'Anchor channel force-close transaction may be stuck.'
+)
 ```
 
 #### 1e. NEW: Fix hardcoded signet in BDK descriptor derivation
@@ -227,18 +241,17 @@ With `'signet'`, mainnet BDK wallets derive addresses at `m/84'/1'/0'` (testnet 
 **From Security Sentinel:** The CSP `connect-src` directive only allows signet/mutinynet domains. On mainnet, the wallet connects to `mempool.space`, `rapidsync.lightningdevkit.org`, and the mainnet wsProxy — all would be blocked by CSP, causing silent failures.
 
 Make CSP environment-aware. Options:
+
 1. **Build-time injection:** Use Vite to inject the correct domains based on `VITE_NETWORK`
 2. **Permissive approach:** Add both signet and mainnet domains (acceptable since CSP still restricts to known good origins)
 3. **Server-side header:** Set CSP via Vercel headers config instead of HTML meta tag
 
 Option 2 is simplest for launch:
+
 ```html
-connect-src 'self'
-  https://mutinynet.com https://*.mutinynet.com wss://p.mutinynet.com
-  https://mempool.space https://*.mempool.space
-  https://rapidsync.lightningdevkit.org
-  wss://*.workers.dev
-  https://cloudflare-dns.com;
+connect-src 'self' https://mutinynet.com https://*.mutinynet.com wss://p.mutinynet.com
+https://mempool.space https://*.mempool.space https://rapidsync.lightningdevkit.org
+wss://*.workers.dev https://cloudflare-dns.com;
 ```
 
 #### 1g. Tests
@@ -257,6 +270,7 @@ connect-src 'self'
 - Add test asserting descriptor prefix (`tprv` for signet, `xprv` for mainnet)
 
 **Acceptance Criteria:**
+
 - [x] `parseBolt11` accepts mainnet invoices when `ACTIVE_NETWORK === 'mainnet'`
 - [x] `parseBolt11` rejects signet invoices when `ACTIVE_NETWORK === 'mainnet'`
 - [x] On-chain address regex matches `bc1q...`, `bc1p...`, `1...`, `3...` on mainnet
@@ -289,15 +303,16 @@ Add an IDB store `ldk_pending_broadcasts` and write transactions to it before th
 
 ### Research Insights (Broadcast Pattern)
 
-**From Architecture Review:** The original plan chained IDB write *before* broadcast (`idbPut().then(() => broadcastWithRetry())`). This gates broadcast latency on IDB write latency (~5ms). For time-critical force-close transactions, fire both in parallel instead:
+**From Architecture Review:** The original plan chained IDB write _before_ broadcast (`idbPut().then(() => broadcastWithRetry())`). This gates broadcast latency on IDB write latency (~5ms). For time-critical force-close transactions, fire both in parallel instead:
 
 ```typescript
 // In broadcast_transactions():
 for (const txBytes of txs) {
   const txHex = bytesToHex(txBytes)
   // Fire BOTH in parallel — broadcast is time-critical, IDB is for crash recovery
-  void idbPut('ldk_pending_broadcasts', txHex, { txHex, createdAt: Date.now() })
-    .catch((err) => console.error('[LDK Broadcaster] Failed to persist pending tx:', err))
+  void idbPut('ldk_pending_broadcasts', txHex, { txHex, createdAt: Date.now() }).catch((err) =>
+    console.error('[LDK Broadcaster] Failed to persist pending tx:', err)
+  )
   void broadcastWithRetry(esploraUrl, txHex)
     .then(() => idbDelete('ldk_pending_broadcasts', txHex))
     .catch((err) => console.error('[LDK Broadcaster] CRITICAL: broadcast failed:', err))
@@ -307,6 +322,7 @@ for (const txBytes of txs) {
 **From Performance Review:** If LDK batches multiple transactions, consider an `idbPutBatch` helper to write all pending broadcasts in a single IDB transaction (reduces N round-trips to 1). Low priority since N is typically 1-2.
 
 **From Data Integrity Review — REQUIRED:** The new `ldk_pending_broadcasts` store must be:
+
 1. Added to the `STORES` array in `src/storage/idb.ts`
 2. `DB_VERSION` bumped from 8 to 9
 3. Without this, all IDB operations on the new store will throw at runtime
@@ -314,6 +330,7 @@ for (const txBytes of txs) {
 **From Best Practices:** Consider multi-endpoint broadcast for mainnet (submit to 2-3 independent Esplora servers). Single endpoint is a single point of failure for force-close transactions. This can be a follow-up improvement.
 
 Add startup drain in `src/ldk/init.ts`:
+
 ```typescript
 // After LDK init, before starting background tasks:
 const pendingTxs = await idbGetAll('ldk_pending_broadcasts')
@@ -408,6 +425,7 @@ Payment persistence failures are M2 (medium) — funds are safe, only history is
 - Test changeset persistence after funding
 
 **Acceptance Criteria:**
+
 - [ ] `ldk_pending_broadcasts` added to STORES array, DB_VERSION bumped to 9
 - [ ] Broadcast and IDB write fire in parallel (not sequential)
 - [ ] Failed broadcasts are persisted to IDB and retried on startup
@@ -434,6 +452,7 @@ Replace `crypto.getRandomValues()` with deterministic derivation.
 ### Research Insights (Key Derivation)
 
 **From TypeScript Review — CRITICAL corrections:**
+
 1. The plan's original code used `this.seed` — but `createBdkSignerProvider` is a factory function returning an object literal, not a class. The seed must be accessed from the closure (e.g., passed as a parameter to the factory).
 2. `peekAddressAtIndex` returns `Uint8Array` (raw script bytes), not an `Address` object. Calling `.script_pubkey().to_bytes()` on it would throw.
 3. `channelKeysIdToIndex` is a private function in `address-utils.ts` — not exported. Use `peekAddressAtIndex` directly, which calls it internally.
@@ -503,6 +522,7 @@ get_destination_script(): Result_CVec_u8ZNoneZ {
 ### Research Insights (Init Order — from Institutional Learnings)
 
 **From Learnings (bdk-ldk-force-close-destination-script-interop):** The BDK wallet must be initialized **before** LDK deserialization so that `peekAddressAtIndex` can derive destination scripts during `ChannelMonitor` restoration. Verify the current init order in `src/ldk/init.ts` ensures:
+
 1. BDK wallet is created and ready
 2. Then LDK `KeysManager` and `ChannelManagerDecodeArgs` are set up
 3. Then `ChannelManager` deserialization (which triggers `get_destination_script` calls)
@@ -517,6 +537,7 @@ If the order is already correct (likely, given the existing `peekAddressAtIndex`
 - Test that `get_destination_script` returns error (not fallback) when BDK wallet fails
 
 **Acceptance Criteria:**
+
 - [ ] `generate_channel_keys_id` is deterministic (same seed + params = same ID)
 - [ ] All parameters included in derivation (inbound, value, user_channel_id)
 - [ ] HMAC uses domain-separation key, not the seed
@@ -566,6 +587,7 @@ function handlePersist(outpoint: OutPoint, monitor: ChannelMonitor): void {
 ```
 
 **From Architecture Review:** Clean up entries on archive:
+
 ```typescript
 // In archive_persisted_channel:
 channelWriteChains.delete(key)
@@ -579,7 +601,7 @@ channelWriteChains.delete(key)
 
 ### Research Insights (Conflict Resolution — REDESIGNED)
 
-**From Security Review & Data Integrity Review — CRITICAL:** The original plan's "accept server version" approach is **unsafe for channel monitors**. Blindly accepting server data can cause the local node to operate with a revoked commitment state. If the server has *older* data from a crashed device, broadcasting from that state triggers a justice transaction — total channel fund loss.
+**From Security Review & Data Integrity Review — CRITICAL:** The original plan's "accept server version" approach is **unsafe for channel monitors**. Blindly accepting server data can cause the local node to operate with a revoked commitment state. If the server has _older_ data from a crashed device, broadcasting from that state triggers a justice transaction — total channel fund loss.
 
 **Correct approach:** Compare monitor `update_id` values. The monitor with the higher `update_id` is more advanced and must win:
 
@@ -649,6 +671,7 @@ The manifest only tracks active (non-archived) monitors. With the LSP-only model
 - Test manifest with > 100 entries (regression for old limit)
 
 **Acceptance Criteria:**
+
 - [ ] Concurrent monitor writes to same channel are serialized (not interleaved)
 - [ ] Error in one write does not break the promise chain
 - [ ] True version conflict compares `update_id` — higher wins
@@ -669,6 +692,7 @@ The manifest only tracks active (non-archived) monitors. With the LSP-only model
 ### Research Insights (CPFP Implementation)
 
 **From LDK Docs & Best Practices:** When implementing, the wallet needs:
+
 1. **`CoinSelectionSource` implementation:** Provide confirmed BDK UTXOs to fund CPFP child transactions.
 2. **Fee reserve management:** Always maintain at least 50,000 sats of confirmed on-chain balance for CPFP. Warn users when reserve drops below threshold.
 3. **RBF compliance:** Subsequent `BumpTransaction` events for the same channel must replace previous anchor transactions per BIP125.
@@ -676,6 +700,7 @@ The manifest only tracks active (non-archived) monitors. With the LSP-only model
 5. **Replayed after failures:** `BumpTransaction` events are regenerated after restart, so transient errors are recoverable.
 
 **Scope when implemented:**
+
 - Implement `Event_BumpTransaction` handler using BDK wallet UTXOs for CPFP
 - Add UTXO reservation strategy (ensure wallet always has fee-bumping capacity)
 - Add fee estimation for CPFP child transactions
@@ -705,9 +730,7 @@ const TOTAL_TIMEOUT_MS = 120_000 // 2 minutes total
 
 for (let i = 0; i < monitorKeys.length; i += CHUNK_SIZE) {
   const chunk = monitorKeys.slice(i, i + CHUNK_SIZE)
-  const results = await Promise.allSettled(
-    chunk.map((key) => vssClient.getObject(key))
-  )
+  const results = await Promise.allSettled(chunk.map((key) => vssClient.getObject(key)))
 
   for (let j = 0; j < results.length; j++) {
     const result = results[j]
@@ -732,12 +755,15 @@ Add an `AbortController` with a 2-minute total timeout. If recovery exceeds this
 #### 6c. Progress reporting
 
 Add a callback parameter to the recovery function:
+
 ```typescript
 onProgress?: (downloaded: number, total: number) => void
 ```
+
 Surface this in the Restore page UI as a progress bar.
 
 **Acceptance Criteria:**
+
 - [ ] VSS recovery downloads monitors in parallel chunks of 10
 - [ ] Total recovery timeout of 2 minutes with clear error message
 - [ ] Recovery progress is reported to the UI
@@ -782,26 +808,26 @@ Surface this in the Restore page UI as a progress bar.
 
 ## Dependencies & Risks
 
-| Risk | Mitigation |
-|------|-----------|
-| `set_negotiate_anchors_zero_fee_htlc_tx` not in WASM bindings | Check bindings first; if missing, reject anchor channels in `OpenChannelRequest` handler |
-| Megalith LSP only supports anchor channels | Coordinate with LSP team before PR1; if anchors required, PR5 must be implemented first |
-| Mainnet wsProxy URL not deployed | Deploy Cloudflare Worker proxy before PR1; URL set via `VITE_WS_PROXY_URL` |
-| Deterministic key IDs change signer behavior | Only affects new channels; existing channels use stored random IDs from ChannelMonitor |
-| Per-channel write queue memory growth during VSS outage | Queue entries bounded by LDK's InProgress halting; max 1-2 per channel |
-| **Hardcoded signet in BDK descriptors** | **CRITICAL fix in PR1 — wrong coin type on mainnet means standard wallets can't find funds** |
-| **CSP blocks mainnet domains** | **Fix in PR1 — silent failure of all network requests on mainnet** |
-| **Monitor conflict accepting stale state** | **Redesigned in PR4 — compare update_id instead of blind accept** |
+| Risk                                                          | Mitigation                                                                                   |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `set_negotiate_anchors_zero_fee_htlc_tx` not in WASM bindings | Check bindings first; if missing, reject anchor channels in `OpenChannelRequest` handler     |
+| Megalith LSP only supports anchor channels                    | Coordinate with LSP team before PR1; if anchors required, PR5 must be implemented first      |
+| Mainnet wsProxy URL not deployed                              | Deploy Cloudflare Worker proxy before PR1; URL set via `VITE_WS_PROXY_URL`                   |
+| Deterministic key IDs change signer behavior                  | Only affects new channels; existing channels use stored random IDs from ChannelMonitor       |
+| Per-channel write queue memory growth during VSS outage       | Queue entries bounded by LDK's InProgress halting; max 1-2 per channel                       |
+| **Hardcoded signet in BDK descriptors**                       | **CRITICAL fix in PR1 — wrong coin type on mainnet means standard wallets can't find funds** |
+| **CSP blocks mainnet domains**                                | **Fix in PR1 — silent failure of all network requests on mainnet**                           |
+| **Monitor conflict accepting stale state**                    | **Redesigned in PR4 — compare update_id instead of blind accept**                            |
 
 ## Accepted Residual Risks (Post All PRs)
 
-| Risk | Severity | Notes |
-|------|----------|-------|
-| Mnemonic in plaintext IDB | HIGH | XSS could steal funds. Follow-up: encrypt at rest with WebCrypto |
-| SpendableOutputs ~5ms crash window | LOW | LDK replays events if not confirmed handled; startup sweep covers |
-| nodeSecretKey in memory for session | MEDIUM | Follow-up: derive on-demand, zero after use |
-| Single Esplora endpoint | MEDIUM | Follow-up: multi-endpoint broadcast for force-close reliability |
-| No Esplora response validation | MEDIUM | Follow-up: validate txid format, add integrity checks |
+| Risk                                | Severity | Notes                                                             |
+| ----------------------------------- | -------- | ----------------------------------------------------------------- |
+| Mnemonic in plaintext IDB           | HIGH     | XSS could steal funds. Follow-up: encrypt at rest with WebCrypto  |
+| SpendableOutputs ~5ms crash window  | LOW      | LDK replays events if not confirmed handled; startup sweep covers |
+| nodeSecretKey in memory for session | MEDIUM   | Follow-up: derive on-demand, zero after use                       |
+| Single Esplora endpoint             | MEDIUM   | Follow-up: multi-endpoint broadcast for force-close reliability   |
+| No Esplora response validation      | MEDIUM   | Follow-up: validate txid format, add integrity checks             |
 
 ## Sources & References
 

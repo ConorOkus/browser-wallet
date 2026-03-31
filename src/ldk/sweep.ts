@@ -25,7 +25,10 @@ async function fetchFeeRate(esploraUrl: string): Promise<number> {
     const estimates = (await res.json()) as Record<string, number>
     const satPerVb = estimates[String(FEE_TARGET_BLOCKS)]
     if (typeof satPerVb === 'number' && satPerVb > 0) {
-      const capped = Math.max(Math.min(Math.ceil(satPerVb), MAX_FEE_RATE_SAT_VB), MIN_FEE_RATE_SAT_VB)
+      const capped = Math.max(
+        Math.min(Math.ceil(satPerVb), MAX_FEE_RATE_SAT_VB),
+        MIN_FEE_RATE_SAT_VB
+      )
       if (capped < Math.ceil(satPerVb)) {
         console.warn(
           '[Sweep] Fee rate capped from',
