@@ -52,6 +52,8 @@ import {
   type SyncNeededCallback,
 } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
+import { hmac } from '@noble/hashes/hmac.js'
+import { sha256 } from '@noble/hashes/sha2.js'
 import { drainPendingBroadcasts } from './traits/broadcaster'
 import { LDK_CONFIG, ACTIVE_NETWORK } from './config'
 import { createLspsMessageHandler } from './lsps2/message-handler'
@@ -235,12 +237,21 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   const startingTimeNanos = (nowMs % 1000) * 1_000_000
   const nodeSecretKey = deriveNodeSecret(seed)
   const keysManager = KeysManager.constructor_new(seed, startingTimeSecs, startingTimeNanos)
+
+  // Derive a purpose-specific HMAC key for channel_keys_id generation
+  // before zeroing the master seed. Only this derived 32-byte key is held
+  // in the signer provider closure — the master seed is not retained.
+  const channelKeyHmacKey = hmac(sha256, seed, new TextEncoder().encode('zinq/channel_keys_id/v1'))
   seed.fill(0) // Zero seed bytes after KeysManager copies them
 
   // Custom SignerProvider that directs close/sweep funds to the BDK wallet.
   // BDK wallet is available eagerly so get_destination_script can derive
   // addresses deterministically during deserialization.
-  const { signerProvider: bdkSignerProvider } = createBdkSignerProvider(keysManager, bdkWallet)
+  const { signerProvider: bdkSignerProvider } = createBdkSignerProvider(
+    keysManager,
+    bdkWallet,
+    channelKeyHmacKey
+  )
 
   // 3. Create trait implementations
   const logger = createLogger()

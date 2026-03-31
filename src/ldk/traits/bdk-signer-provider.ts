@@ -7,6 +7,8 @@ import {
   ShutdownScript,
 } from 'lightningdevkit'
 import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
+import { hmac } from '@noble/hashes/hmac.js'
+import { sha256 } from '@noble/hashes/sha2.js'
 import { revealNextAddress, peekAddressAtIndex } from '../../onchain/address-utils'
 
 /**
@@ -15,33 +17,52 @@ import { revealNextAddress, peekAddressAtIndex } from '../../onchain/address-uti
  * return BDK wallet addresses. This ensures all channel close funds
  * (cooperative and force close) go to the on-chain BDK wallet.
  *
+ * generate_channel_keys_id uses deterministic HMAC-SHA256 derivation from
+ * a purpose-specific key (derived from the LDK seed at init time) so that
+ * cross-device recovery produces the same key IDs.
+ *
  * get_destination_script derives addresses deterministically from
  * channel_keys_id so that cross-device VSS recovery produces the same
  * scripts. get_shutdown_scriptpubkey uses next_unused_address since
  * shutdown scripts are recorded at channel open time and replayed from
  * serialized state.
+ *
+ * @param channelKeyHmacKey - 32-byte HMAC key derived from the LDK seed
+ *   via HMAC-SHA256(seed, "zinq/channel_keys_id/v1"). The master seed is
+ *   NOT held by this provider — only this purpose-limited derived key.
  */
 export function createBdkSignerProvider(
   keysManager: KeysManager,
-  bdkWallet: Wallet
+  bdkWallet: Wallet,
+  channelKeyHmacKey: Uint8Array
 ): { signerProvider: SignerProvider } {
   const defaultProvider = keysManager.as_SignerProvider()
 
   const impl: SignerProviderInterface = {
     generate_channel_keys_id(
-      _inbound: boolean, // eslint-disable-line @typescript-eslint/no-unused-vars
-      _channel_value_satoshis: bigint, // eslint-disable-line @typescript-eslint/no-unused-vars
-      _user_channel_id: bigint // eslint-disable-line @typescript-eslint/no-unused-vars
+      inbound: boolean,
+      channel_value_satoshis: bigint,
+      user_channel_id: bigint
     ): Uint8Array {
-      // Generate a random 32-byte channel keys ID directly instead of
-      // delegating to defaultProvider.generate_channel_keys_id(), which
-      // re-encodes user_channel_id via encodeUint128. The LDK WASM bindings
-      // have an asymmetry: decodeUint128 reads full 128-bit values but
-      // encodeUint128 rejects values >= 2^124, causing failures when the
-      // user_channel_id has high bits set.
-      const channelKeysId = new Uint8Array(32)
-      crypto.getRandomValues(channelKeysId)
-      return channelKeysId
+      // Deterministic derivation from a purpose-specific HMAC key + channel
+      // parameters for cross-device recovery. The HMAC key was derived at init
+      // time as HMAC-SHA256(seed, "zinq/channel_keys_id/v1"), so the master seed
+      // is not held in this closure.
+      //
+      // Wire format (must be reproduced exactly for cross-platform recovery):
+      //   [1 byte: inbound flag] [8 bytes: channel_value_satoshis BE]
+      //   [8 bytes: user_channel_id lower 64 bits BE] [8 bytes: upper 64 bits BE]
+      //
+      // WASM u128 note: We operate on the raw BigInt value directly rather than
+      // re-encoding through LDK's encodeUint128 (which rejects values >= 2^124).
+      const data = new Uint8Array(1 + 8 + 16) // inbound + value + user_channel_id
+      data[0] = inbound ? 1 : 0
+      const view = new DataView(data.buffer)
+      view.setBigUint64(1, channel_value_satoshis, false)
+      view.setBigUint64(9, user_channel_id & 0xffffffffffffffffn, false)
+      view.setBigUint64(17, user_channel_id >> 64n, false)
+
+      return hmac(sha256, channelKeyHmacKey, data)
     },
 
     derive_channel_signer(channel_value_satoshis: bigint, channel_keys_id: Uint8Array) {
@@ -53,19 +74,21 @@ export function createBdkSignerProvider(
     },
 
     get_destination_script(channel_keys_id: Uint8Array) {
+      // No fallback to KeysManager — if BDK address derivation fails, return
+      // an error to LDK. LDK will fail the channel operation gracefully.
+      // Falling back to KeysManager would send funds to an address the BDK
+      // wallet doesn't watch, making them appear lost.
       try {
         const script = peekAddressAtIndex(bdkWallet, channel_keys_id)
         return Result_CVec_u8ZNoneZ.constructor_ok(script)
       } catch (err) {
-        console.warn(
-          '[BdkSignerProvider] Failed to get deterministic BDK address, falling back to KeysManager:',
-          err
-        )
-        return defaultProvider.get_destination_script(channel_keys_id)
+        console.error('[BdkSignerProvider] CRITICAL: Cannot derive destination address:', err)
+        return Result_CVec_u8ZNoneZ.constructor_err()
       }
     },
 
     get_shutdown_scriptpubkey() {
+      // No fallback to KeysManager — return error if BDK fails.
       try {
         const script = revealNextAddress(bdkWallet, 'BdkSignerProvider')
         // Validate P2WPKH format: OP_0 (0x00) + PUSH_20 (0x14) + 20-byte pubkey hash = 22 bytes
@@ -74,18 +97,15 @@ export function createBdkSignerProvider(
           const shutdownScript = ShutdownScript.constructor_new_p2wpkh(pubkeyHash)
           return Result_ShutdownScriptNoneZ.constructor_ok(shutdownScript)
         }
-        console.warn(
-          '[BdkSignerProvider] Unexpected script format (length=%d, prefix=0x%s), falling back to KeysManager',
+        console.error(
+          '[BdkSignerProvider] CRITICAL: Unexpected script format (length=%d, prefix=0x%s)',
           script.length,
           script[0]?.toString(16)
         )
       } catch (err) {
-        console.warn(
-          '[BdkSignerProvider] Failed to get BDK shutdown address, falling back to KeysManager:',
-          err
-        )
+        console.error('[BdkSignerProvider] CRITICAL: Cannot derive shutdown address:', err)
       }
-      return defaultProvider.get_shutdown_scriptpubkey()
+      return Result_ShutdownScriptNoneZ.constructor_err()
     },
   }
 
