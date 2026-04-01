@@ -517,7 +517,7 @@ export function Receive() {
 
           <BottomSheet open={showSheet} onClose={() => setShowSheet(false)}>
             <p className="text-sm font-semibold text-on-dark">
-              {activeQrPage === 'bolt12' ? 'BOLT 12 offer' : 'Payment request'}
+              {activeQrPage === 'bolt12' ? 'Reusable payment request' : 'Payment request'}
             </p>
             <p className="mt-3 select-text break-all font-mono text-xs text-[var(--color-on-dark-muted)]">
               {copyValue}
