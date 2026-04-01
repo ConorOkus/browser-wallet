@@ -214,8 +214,13 @@ export function Receive() {
     return () => el.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  // Build BIP 321 URIs
+  // Reset pager to unified page when BOLT 12 page is removed
   const showBolt12 = bolt12Offer && !needsAmount
+  useEffect(() => {
+    if (!showBolt12) setActiveQrPage('unified')
+  }, [showBolt12])
+
+  // Build BIP 321 URIs
   const bip321Uri = address
     ? buildBip321Uri({ address, amountSats: confirmedAmountSats, invoice, lno: showBolt12 ? bolt12Offer : null })
     : ''
@@ -252,7 +257,7 @@ export function Receive() {
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
-    if (!el) return
+    if (!el || el.clientWidth === 0) return
     const page = Math.round(el.scrollLeft / el.clientWidth)
     setActiveQrPage(page === 1 ? 'bolt12' : 'unified')
   }, [])
@@ -451,7 +456,7 @@ export function Receive() {
                     </div>
 
                     {/* Page 2: BOLT 12 Offer QR */}
-                    {showBolt12 && bolt12Uri && (
+                    {showBolt12 && (
                       <div className="flex w-full shrink-0 snap-center justify-center">
                         <div
                           className="flex h-[260px] w-[260px] items-center justify-center rounded-2xl bg-white p-5"
@@ -464,22 +469,13 @@ export function Receive() {
                   </div>
 
                   {/* Dot indicators */}
-                  {showBolt12 && bolt12Uri && (
-                    <div className="mt-4 flex justify-center gap-2">
-                      <button
+                  {showBolt12 && (
+                    <div className="mt-4 flex justify-center gap-2" aria-hidden="true">
+                      <span
                         className={`h-2 w-2 rounded-full transition-colors ${activeQrPage === 'unified' ? 'bg-white' : 'bg-white/30'}`}
-                        onClick={() => {
-                          scrollRef.current?.scrollTo({ left: 0, behavior: 'smooth' })
-                        }}
-                        aria-label="Show unified payment QR"
                       />
-                      <button
+                      <span
                         className={`h-2 w-2 rounded-full transition-colors ${activeQrPage === 'bolt12' ? 'bg-white' : 'bg-white/30'}`}
-                        onClick={() => {
-                          const el = scrollRef.current
-                          if (el) el.scrollTo({ left: el.clientWidth, behavior: 'smooth' })
-                        }}
-                        aria-label="Show BOLT 12 offer QR"
                       />
                     </div>
                   )}
