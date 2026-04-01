@@ -1,5 +1,5 @@
 ---
-title: "BottomSheet accessibility: focus trap, scroll lock, and related PR fixes"
+title: 'BottomSheet accessibility: focus trap, scroll lock, and related PR fixes'
 category: ui-bugs
 date: 2026-03-31
 tags:
