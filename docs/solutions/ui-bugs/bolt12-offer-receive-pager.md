@@ -87,7 +87,7 @@ export interface BuildBip321Options {
 
 Usage in Receive.tsx:
 
-- Unified QR includes `lno` when BOLT 12 is available: `lno: showBolt12 ? bolt12Offer : null`
+- Unified QR does **not** include `lno` — each payment format lives on its own pager page (see [lno misplacement fix](../logic-errors/bip321-unified-uri-bolt12-lno-misplacement.md))
 - Standalone BOLT 12 QR omits the address: `buildBip321Uri({ lno: bolt12Offer })`
 
 ### 3. JIT flow guard and page reset
