@@ -192,9 +192,8 @@ describe('SignatureHeaderProvider', () => {
   it('returns an authorization header with correct format', async () => {
     const provider = new SignatureHeaderProvider(secretKey)
     const headers = await provider.getHeaders()
+    const auth = headers['authorization']!
 
-    expect(headers).toHaveProperty('authorization')
-    const auth = headers.authorization
     // 66 hex chars (33-byte compressed pubkey) + 128 hex chars (64-byte compact sig) + timestamp digits
     expect(auth.length).toBeGreaterThan(66 + 128)
     const pubkeyHex = auth.slice(0, 66)
@@ -208,7 +207,7 @@ describe('SignatureHeaderProvider', () => {
   it('produces a verifiable ECDSA signature', async () => {
     const provider = new SignatureHeaderProvider(secretKey)
     const headers = await provider.getHeaders()
-    const auth = headers.authorization
+    const auth = headers['authorization']!
 
     const pubkeyHex = auth.slice(0, 66)
     const sigHex = auth.slice(66, 66 + 128)
@@ -244,6 +243,6 @@ describe('SignatureHeaderProvider', () => {
     key.fill(0) // mutate the original
     const headers = await provider.getHeaders()
     // Should still work with the original key value, not zeros
-    expect(headers.authorization.length).toBeGreaterThan(66 + 128)
+    expect(headers['authorization']!.length).toBeGreaterThan(66 + 128)
   })
 })
