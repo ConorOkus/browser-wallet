@@ -12,6 +12,9 @@ import {
   type KeyValue,
 } from './proto/vss_pb'
 import { vssEncrypt, vssDecrypt, obfuscateKey } from './vss-crypto'
+import { sha256 } from '@noble/hashes/sha2.js'
+import * as secp256k1 from '@noble/secp256k1'
+import { bytesToHex } from '../utils'
 
 /** Type guard: checks whether an error is a VSS version-conflict response. */
 export function isVssConflict(err: unknown): err is VssError {
@@ -32,6 +35,48 @@ export class FixedHeaderProvider implements VssHeaderProvider {
   }
   getHeaders(): Promise<Record<string, string>> {
     return Promise.resolve({ ...this.#headers })
+  }
+}
+
+// 64-byte domain separator required by the Nodana VSS Signature Authorizer protocol.
+// The trailing dots pad to exactly 64 bytes — do not modify.
+const VSS_SIGNING_CONSTANT = new TextEncoder().encode(
+  'VSS Signature Authorizer Signing Salt Constant..................'
+)
+
+export class SignatureHeaderProvider implements VssHeaderProvider {
+  #secretKey: Uint8Array
+  #pubkeyBytes: Uint8Array
+
+  constructor(secretKey: Uint8Array) {
+    this.#secretKey = new Uint8Array(secretKey)
+    this.#pubkeyBytes = secp256k1.getPublicKey(this.#secretKey, true)
+  }
+
+  destroy(): void {
+    this.#secretKey.fill(0)
+  }
+
+  async getHeaders(): Promise<Record<string, string>> {
+    const timestamp = Math.floor(Date.now() / 1000).toString()
+    const timestampBytes = new TextEncoder().encode(timestamp)
+
+    const preimage = new Uint8Array(
+      VSS_SIGNING_CONSTANT.length + this.#pubkeyBytes.length + timestampBytes.length
+    )
+    preimage.set(VSS_SIGNING_CONSTANT, 0)
+    preimage.set(this.#pubkeyBytes, VSS_SIGNING_CONSTANT.length)
+    preimage.set(timestampBytes, VSS_SIGNING_CONSTANT.length + this.#pubkeyBytes.length)
+
+    const hash = sha256(preimage)
+    const sigBytes = await secp256k1.signAsync(hash, this.#secretKey, {
+      prehash: false,
+      format: 'compact',
+    })
+
+    return {
+      authorization: bytesToHex(this.#pubkeyBytes) + bytesToHex(sigBytes) + timestamp,
+    }
   }
 }
 
