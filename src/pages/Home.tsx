@@ -1,15 +1,32 @@
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
 import { useUnifiedBalance } from '../hooks/use-unified-balance'
 import { BalanceDisplay } from '../components/BalanceDisplay'
-import { ArrowUpRight, ArrowDownLeft } from '../components/icons'
+import { ArrowUpRight, ArrowDownLeft, RefreshIcon } from '../components/icons'
 
 export function Home() {
   const navigate = useNavigate()
   const onchain = useOnchain()
   const ldk = useLdk()
   const { total, pending, isLoading } = useUnifiedBalance()
+  const [refreshing, setRefreshing] = useState(false)
+
+  const syncNow = onchain.status === 'ready' ? onchain.syncNow : null
+
+  const handleRefresh = useCallback(() => {
+    if (refreshing) return
+    syncNow?.()
+    setRefreshing(true)
+  }, [refreshing, syncNow])
+
+  // Stop the spinner after a fixed duration since syncNow is fire-and-forget
+  useEffect(() => {
+    if (!refreshing) return
+    const id = setTimeout(() => setRefreshing(false), 3000)
+    return () => clearTimeout(id)
+  }, [refreshing])
 
   const hasError = onchain.status === 'error' || ldk.status === 'error'
 
@@ -30,6 +47,16 @@ export function Home() {
 
   return (
     <div className="flex min-h-dvh flex-col justify-between bg-accent px-6 pt-4 text-on-accent">
+      <div className="flex justify-end pt-[env(safe-area-inset-top,0px)]">
+        <button
+          className="flex h-11 w-11 items-center justify-center rounded-full text-on-accent transition-colors active:bg-black/10"
+          onClick={handleRefresh}
+          aria-label="Refresh"
+          disabled={refreshing}
+        >
+          <RefreshIcon className={`h-5 w-5 ${refreshing ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
       <BalanceDisplay balance={total} pending={pending} loading={isLoading} />
 
       <div className="flex gap-3 pb-[calc(var(--spacing-tab-bar)+0.75rem+env(safe-area-inset-bottom,0px))]">
