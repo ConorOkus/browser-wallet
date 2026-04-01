@@ -219,8 +219,8 @@ export function Receive() {
   const bip321Uri = address
     ? buildBip321Uri({ address, amountSats: confirmedAmountSats, invoice, b12: showBolt12 ? bolt12Offer : null })
     : ''
-  const bolt12Uri = address && bolt12Offer
-    ? buildBip321Uri({ address, b12: bolt12Offer })
+  const bolt12Uri = bolt12Offer
+    ? buildBip321Uri({ b12: bolt12Offer })
     : ''
 
   const copyValue = activeQrPage === 'bolt12' && bolt12Uri ? bolt12Uri : bip321Uri

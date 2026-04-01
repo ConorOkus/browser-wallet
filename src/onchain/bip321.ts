@@ -23,15 +23,15 @@ export function satsToBtcString(sats: bigint): string {
 }
 
 export interface BuildBip321Options {
-  address: string
+  address?: string
   amountSats?: bigint
   invoice?: string | null
   b12?: string | null
 }
 
-/** Build a BIP 321 URI from an address and optional query parameters. */
+/** Build a BIP 21 URI from an optional address and query parameters. */
 export function buildBip321Uri({ address, amountSats, invoice, b12 }: BuildBip321Options): string {
-  const base = `bitcoin:${address.toUpperCase()}`
+  const base = address ? `bitcoin:${address.toUpperCase()}` : 'bitcoin:'
   const params: string[] = []
   if (amountSats !== undefined && amountSats > 0n) {
     params.push(`amount=${satsToBtcString(amountSats)}`)
