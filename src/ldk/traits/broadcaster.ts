@@ -1,6 +1,7 @@
 import { BroadcasterInterface } from 'lightningdevkit'
 import { bytesToHex } from '../utils'
 import { idbPut, idbDelete, idbGetAll } from '../../storage/idb'
+import { captureError } from '../../storage/error-log'
 
 const MAX_BROADCAST_RETRIES = 5
 const RETRY_DELAY_MS = 1_000
@@ -103,7 +104,12 @@ export function createBroadcaster(esploraUrl: string, fallbackUrl?: string): Bro
           .then(() => persisted)
           .then(() => idbDelete('ldk_pending_broadcasts', txHex))
           .catch((err: unknown) => {
-            console.error('[LDK Broadcaster] CRITICAL: broadcast failed:', err)
+            captureError(
+              'critical',
+              'Broadcaster',
+              'Broadcast failed after all retries',
+              String(err)
+            )
           })
       }
     },

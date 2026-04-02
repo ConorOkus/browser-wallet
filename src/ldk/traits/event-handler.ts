@@ -58,6 +58,7 @@ import { putChangeset } from '../../onchain/storage/changeset'
 import { broadcastWithRetry } from './broadcaster'
 import { ONCHAIN_CONFIG } from '../../onchain/config'
 import { sweepSpendableOutputs } from '../sweep'
+import { captureError } from '../../storage/error-log'
 
 const MAX_FORWARD_DELAY_MS = 10_000
 
@@ -339,7 +340,12 @@ function handleEvent(
         }
       })
       .catch((err: unknown) => {
-        console.error('[LDK Event] CRITICAL: Failed to persist/sweep SpendableOutputs:', err)
+        captureError(
+          'critical',
+          'Event:SpendableOutputs',
+          'Failed to persist/sweep outputs',
+          String(err)
+        )
       })
     console.log(
       '[LDK Event] SpendableOutputs: persisting',
@@ -460,12 +466,13 @@ function handleEvent(
       try {
         bumpTxHandler.handle_event(event.bump_transaction)
       } catch (err: unknown) {
-        console.error('[LDK Event] BumpTransaction: CPFP handling failed:', err)
+        captureError('critical', 'Event:BumpTransaction', 'CPFP handling failed', String(err))
       }
     } else {
-      console.error(
-        '[LDK Event] CRITICAL: BumpTransaction received but no handler configured. ' +
-          'Anchor channel force-close transaction may be stuck.'
+      captureError(
+        'critical',
+        'Event:BumpTransaction',
+        'No handler configured — force-close tx may be stuck'
       )
     }
     return

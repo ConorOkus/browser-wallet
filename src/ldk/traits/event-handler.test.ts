@@ -660,7 +660,11 @@ describe('createEventHandler', () => {
 
   it('logs critical error on BumpTransaction', () => {
     handleEvent(new Event_BumpTransaction())
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('BumpTransaction'))
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('BumpTransaction'),
+      expect.any(String),
+      expect.any(String)
+    )
   })
 
   it('silently handles PaymentPathSuccessful', () => {

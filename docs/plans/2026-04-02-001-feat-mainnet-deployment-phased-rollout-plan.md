@@ -174,7 +174,7 @@ Execute manually with real (small amount) mainnet funds:
 
 **Phase 3 exit criteria:**
 - [x] No orphaned IDB entries on failed channel opens
-- [ ] Error monitoring captures critical failures
+- [x] Error monitoring captures critical failures
 - [x] Rollback procedure documented and reviewed
 - [ ] All smoke test scenarios pass with real funds
 
