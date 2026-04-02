@@ -54,7 +54,7 @@ function persistChangeset(wallet: Wallet): void {
   const staged = wallet.take_staged()
   if (staged && !staged.is_empty()) {
     void putChangeset(staged.to_json()).catch((err: unknown) =>
-      captureError('critical', 'Onchain', 'CRITICAL: failed to persist changeset', String(err))
+      captureError('critical', 'Onchain', 'Failed to persist changeset', String(err))
     )
   }
 }

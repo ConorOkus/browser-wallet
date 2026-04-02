@@ -178,7 +178,7 @@ export function createPersister(options: PersisterOptions = {}): {
                 return
               }
               // Different data — log critical but use server version for next write attempt
-              captureError('critical', 'LDK Persist', `CRITICAL: True version conflict for ${key}. Server version: ${serverObj.version}. Retrying with corrected version.`)
+              captureError('critical', 'LDK Persist', `True version conflict for ${key}. Server version: ${serverObj.version}. Retrying with corrected version.`)
             } else {
               // Key was deleted on the server — reset version to 0
               versionCache.set(key, 0)
@@ -198,7 +198,7 @@ export function createPersister(options: PersisterOptions = {}): {
           captureError('critical', 'LDK Persist', `Conflict resolution exhausted for ${key} after ${MAX_CONFLICT_RETRIES} attempts, falling back to backoff`)
         }
 
-        captureError('critical', 'LDK Persist', `Write failed for ${key}`, String(err))
+        captureError('critical', 'LDK Persist', `Persist write failed for ${key}`, String(err))
         await new Promise((resolve) => setTimeout(resolve, backoff))
         totalWaitMs += backoff
         backoff = Math.min(backoff * 2, MAX_BACKOFF_MS)

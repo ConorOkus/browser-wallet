@@ -83,7 +83,7 @@ export function createBdkSignerProvider(
         const script = peekAddressAtIndex(bdkWallet, channel_keys_id)
         return Result_CVec_u8ZNoneZ.constructor_ok(script)
       } catch (err) {
-        captureError('critical', 'BdkSignerProvider', 'CRITICAL: Cannot derive destination address', String(err))
+        captureError('critical', 'BdkSignerProvider', 'Cannot derive destination address', String(err))
         return Result_CVec_u8ZNoneZ.constructor_err()
       }
     },
@@ -98,9 +98,9 @@ export function createBdkSignerProvider(
           const shutdownScript = ShutdownScript.constructor_new_p2wpkh(pubkeyHash)
           return Result_ShutdownScriptNoneZ.constructor_ok(shutdownScript)
         }
-        captureError('critical', 'BdkSignerProvider', `CRITICAL: Unexpected script format (length=${script.length}, prefix=0x${script[0]?.toString(16)})`)
+        captureError('critical', 'BdkSignerProvider', `Unexpected script format (length=${script.length}, prefix=0x${script[0]?.toString(16)})`)
       } catch (err) {
-        captureError('critical', 'BdkSignerProvider', 'CRITICAL: Cannot derive shutdown address', String(err))
+        captureError('critical', 'BdkSignerProvider', 'Cannot derive shutdown address', String(err))
       }
       return Result_ShutdownScriptNoneZ.constructor_err()
     },

@@ -418,7 +418,7 @@ function handleEvent(
         try {
           await idbPut('ldk_funding_txs', tempChannelIdHex, txHex)
         } catch (err: unknown) {
-          captureError('critical', 'LDK Event', 'CRITICAL: Failed to persist funding tx — aborting channel', String(err))
+          captureError('critical', 'LDK Event', 'Failed to persist funding tx — aborting channel', String(err))
           return
         }
 
@@ -448,7 +448,7 @@ function handleEvent(
         const changeset = bdkWallet.take_staged()
         if (changeset && !changeset.is_empty()) {
           await putChangeset(changeset.to_json()).catch((err: unknown) =>
-            captureError('critical', 'BDK', 'CRITICAL: failed to persist changeset after funding tx', String(err))
+            captureError('critical', 'BDK', 'Failed to persist changeset after funding tx', String(err))
           )
         }
       } catch (err: unknown) {

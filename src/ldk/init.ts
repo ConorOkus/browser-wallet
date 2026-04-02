@@ -415,7 +415,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   )
   setChainMonitor(chainMonitor)
   onPersistFailure(({ key, error }) => {
-    captureError('critical', 'LDK Init', `CRITICAL: Persist failure for ${key}, channel operations halted`, error.message)
+    captureError('critical', 'LDK Init', `Persist failure for ${key}, channel operations halted`, error.message)
   })
 
   // 5. Restore or create NetworkGraph

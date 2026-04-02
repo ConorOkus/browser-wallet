@@ -66,7 +66,7 @@ export function startOnchainSyncLoop(
         try {
           await putChangeset(staged.to_json())
         } catch (err) {
-          captureError('critical', 'BDK Sync', 'CRITICAL: failed to persist ChangeSet', String(err))
+          captureError('critical', 'BDK Sync', 'Failed to persist ChangeSet', String(err))
         }
       }
 

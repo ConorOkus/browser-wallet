@@ -94,7 +94,7 @@ export async function fullScanBdkWallet(
     try {
       await putChangeset(staged.to_json())
     } catch (err) {
-      captureError('critical', 'BDK', 'CRITICAL: failed to persist ChangeSet after full scan', String(err))
+      captureError('critical', 'BDK', 'Failed to persist ChangeSet after full scan', String(err))
     }
   }
 }

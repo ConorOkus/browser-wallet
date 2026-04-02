@@ -60,8 +60,6 @@ export default defineConfig(({ mode }) => {
     worker: {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       plugins: (): PluginOption[] => [wasm(), topLevelAwait()],
-      // Note: if worker files are added, they will need their own esbuild.drop
-      // config to strip console on mainnet — the top-level setting does not apply.
     },
     server: {
       headers: {
