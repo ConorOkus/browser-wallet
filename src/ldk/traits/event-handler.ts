@@ -26,6 +26,8 @@ import {
   PaymentFailureReason,
   Result_NoneReplayEventZ,
   Result_NoneAPIErrorZ_Err,
+  SocketAddress_TcpIpV4,
+  SocketAddress_Hostname,
   type ClosureReason,
   ClosureReason_CounterpartyForceClosed,
   ClosureReason_HolderForceClosed,
@@ -43,6 +45,7 @@ import {
   ClosureReason_PeerFeerateTooLow,
   type ChannelManager,
   type KeysManager,
+  type SocketAddress,
   type Event,
 } from 'lightningdevkit'
 import { Wallet, Recipient, ScriptBuf, Amount, SignOptions } from '@bitcoindevkit/bdk-wallet-web'
@@ -68,6 +71,8 @@ export type ChannelClosedCallback = (counterpartyPubkeyHex: string) => void
 
 export type SyncNeededCallback = () => void
 
+export type ConnectionNeededCallback = (nodeIdHex: string, host: string, port: number) => void
+
 export function createEventHandler(
   channelManager: ChannelManager,
   keysManager: KeysManager,
@@ -75,7 +80,8 @@ export function createEventHandler(
   lspNodeId: string,
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
-  onSyncNeeded?: SyncNeededCallback
+  onSyncNeeded?: SyncNeededCallback,
+  onConnectionNeeded?: ConnectionNeededCallback
 ): {
   handler: EventHandler
   cleanup: () => void
@@ -97,7 +103,8 @@ export function createEventHandler(
           },
           onPaymentEvent,
           onChannelClosed,
-          onSyncNeeded
+          onSyncNeeded,
+          onConnectionNeeded
         )
       } catch (err: unknown) {
         console.error('[LDK Event] Unhandled error in event handler:', err)
@@ -139,7 +146,8 @@ function handleEvent(
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
-  onSyncNeeded?: SyncNeededCallback
+  onSyncNeeded?: SyncNeededCallback,
+  onConnectionNeeded?: ConnectionNeededCallback
 ): void {
   // Payment events
   if (event instanceof Event_PaymentClaimable) {
@@ -327,13 +335,25 @@ function handleEvent(
     return
   }
 
-  // Peer reconnection — SocketAddress parsing not yet implemented
+  // Peer reconnection — parse first usable address and reconnect
   if (event instanceof Event_ConnectionNeeded) {
-    console.warn(
-      '[LDK Event] ConnectionNeeded:',
-      bytesToHex(event.node_id),
-      '— SocketAddress parsing not yet implemented'
-    )
+    const nodeIdHex = bytesToHex(event.node_id)
+    const parsed = parseFirstSocketAddress(event.addresses)
+    if (parsed && onConnectionNeeded) {
+      console.log(
+        '[LDK Event] ConnectionNeeded:',
+        nodeIdHex.substring(0, 16) + '…',
+        'connecting to',
+        `${parsed.host}:${parsed.port}`
+      )
+      onConnectionNeeded(nodeIdHex, parsed.host, parsed.port)
+    } else {
+      console.warn(
+        '[LDK Event] ConnectionNeeded:',
+        nodeIdHex.substring(0, 16) + '…',
+        parsed ? '— no callback registered' : '— no usable address in event'
+      )
+    }
     return
   }
 
@@ -513,6 +533,22 @@ async function broadcastPersistedFundingTx(tempChannelIdHex: string): Promise<vo
   const txid = await broadcastWithRetry(ONCHAIN_CONFIG.esploraUrl, txHex)
   void idbDelete('ldk_funding_txs', tempChannelIdHex).catch(() => {})
   console.log('[LDK Event] FundingTxBroadcastSafe: broadcast tx:', txid)
+}
+
+function parseFirstSocketAddress(
+  addresses: SocketAddress[]
+): { host: string; port: number } | null {
+  for (const addr of addresses) {
+    if (addr instanceof SocketAddress_TcpIpV4) {
+      const bytes = addr.addr
+      const host = `${bytes[0]}.${bytes[1]}.${bytes[2]}.${bytes[3]}`
+      return { host, port: addr.port }
+    }
+    if (addr instanceof SocketAddress_Hostname) {
+      return { host: addr.hostname.to_str(), port: addr.port }
+    }
+  }
+  return null
 }
 
 function describeClosureReason(reason: ClosureReason): string {

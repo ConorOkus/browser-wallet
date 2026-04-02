@@ -470,6 +470,7 @@ export function LdkProvider({
           setPaymentCallback,
           setChannelClosedCallback,
           setSyncNeededCallback,
+          setConnectionNeededCallback,
           cmPersistCtx,
         }) => {
           if (cancelled) return
@@ -513,6 +514,25 @@ export function LdkProvider({
             deleteKnownPeer(counterpartyPubkeyHex).catch((err: unknown) => {
               console.warn('[ldk] Failed to remove known peer after channel close:', err)
             })
+          })
+
+          // Reconnect peers when LDK signals ConnectionNeeded (e.g., pending
+          // HTLCs require the peer to be online). Uses addresses from the event.
+          setConnectionNeededCallback((nodeIdHex, host, port) => {
+            void doConnectToPeer(node.peerManager, nodeIdHex, host, port, () =>
+              drainEventsRef.current?.()
+            )
+              .then((conn) => {
+                activeConnections.current.get(nodeIdHex)?.disconnect()
+                activeConnections.current.set(nodeIdHex, conn)
+              })
+              .catch((err: unknown) => {
+                console.warn(
+                  '[ldk] ConnectionNeeded reconnect failed:',
+                  nodeIdHex.substring(0, 16) + '…',
+                  err
+                )
+              })
           })
 
           cleanupEventHandlerFn = cleanupEventHandler

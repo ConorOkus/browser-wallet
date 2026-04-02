@@ -67,6 +67,22 @@ vi.mock('lightningdevkit', () => {
     counterparty_node_id = new Uint8Array([0xaa, 0xbb, 0xcc])
     reason = new ClosureReason_LegacyCooperativeClosure()
   }
+  class SocketAddress_TcpIpV4 {
+    addr: Uint8Array
+    port: number
+    constructor(addr: Uint8Array, port: number) {
+      this.addr = addr
+      this.port = port
+    }
+  }
+  class SocketAddress_Hostname {
+    hostname: { to_str: () => string }
+    port: number
+    constructor(hostname: string, port: number) {
+      this.hostname = { to_str: () => hostname }
+      this.port = port
+    }
+  }
   class Event_ConnectionNeeded extends MockEvent {
     node_id = new Uint8Array([9, 10, 11])
     addresses: unknown[] = []
@@ -183,6 +199,8 @@ vi.mock('lightningdevkit', () => {
     ClosureReason_FundingBatchClosure,
     ClosureReason_HTLCsTimedOut,
     ClosureReason_PeerFeerateTooLow,
+    SocketAddress_TcpIpV4,
+    SocketAddress_Hostname,
     Result_NoneReplayEventZ: {
       constructor_ok: vi.fn(() => ({ is_ok: () => true })),
     },
@@ -277,6 +295,8 @@ const {
   Event_OpenChannelRequest,
   Event_DiscardFunding,
   Option_ThirtyTwoBytesZ_None,
+  SocketAddress_TcpIpV4,
+  SocketAddress_Hostname,
 } = ldk
 
 function createMockKeysManager() {
@@ -500,12 +520,66 @@ describe('createEventHandler', () => {
     result.cleanup()
   })
 
-  it('warns on ConnectionNeeded (not yet implemented)', () => {
+  it('calls onConnectionNeeded with parsed TcpIpV4 address', () => {
+    const mockConnectionNeeded = vi.fn()
+    const cm = createMockChannelManager()
+    const result = createEventHandler(
+      cm,
+      createMockKeysManager(),
+      mockBdkWallet as never,
+      '',
+      undefined,
+      undefined,
+      undefined,
+      mockConnectionNeeded
+    )
+    const handler = (result.handler as unknown as { _impl: { handle_event: HandleEventFn } })._impl
+      .handle_event
+
+    const event = Object.assign(new Event_ConnectionNeeded(), {
+      addresses: [new SocketAddress_TcpIpV4(new Uint8Array([192, 168, 1, 100]), 9735)],
+    })
+    handler(event)
+    expect(mockConnectionNeeded).toHaveBeenCalledWith('090a0b', '192.168.1.100', 9735)
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('ConnectionNeeded'),
+      expect.any(String),
+      expect.stringContaining('connecting to'),
+      '192.168.1.100:9735'
+    )
+    result.cleanup()
+  })
+
+  it('calls onConnectionNeeded with parsed Hostname address', () => {
+    const mockConnectionNeeded = vi.fn()
+    const cm = createMockChannelManager()
+    const result = createEventHandler(
+      cm,
+      createMockKeysManager(),
+      mockBdkWallet as never,
+      '',
+      undefined,
+      undefined,
+      undefined,
+      mockConnectionNeeded
+    )
+    const handler = (result.handler as unknown as { _impl: { handle_event: HandleEventFn } })._impl
+      .handle_event
+
+    const event = Object.assign(new Event_ConnectionNeeded(), {
+      addresses: [new SocketAddress_Hostname('node.example.com', 9735)],
+    })
+    handler(event)
+    expect(mockConnectionNeeded).toHaveBeenCalledWith('090a0b', 'node.example.com', 9735)
+    result.cleanup()
+  })
+
+  it('warns on ConnectionNeeded with no usable addresses', () => {
     handleEvent(new Event_ConnectionNeeded())
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('ConnectionNeeded'),
       expect.any(String),
-      expect.stringContaining('not yet implemented')
+      expect.stringContaining('no usable address')
     )
   })
 

@@ -50,6 +50,7 @@ import {
   type PaymentEventCallback,
   type ChannelClosedCallback,
   type SyncNeededCallback,
+  type ConnectionNeededCallback,
 } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
 import { hmac } from '@noble/hashes/hmac.js'
@@ -631,6 +632,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   let paymentCallback: PaymentEventCallback | undefined
   let channelClosedCallback: ChannelClosedCallback | undefined
   let syncNeededCallback: SyncNeededCallback | undefined
+  let connectionNeededCallback: ConnectionNeededCallback | undefined
   const { handler: eventHandler, cleanup: cleanupEventHandler } = createEventHandler(
     channelManager,
     keysManager,
@@ -638,7 +640,8 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     LDK_CONFIG.lspNodeId,
     (...args) => paymentCallback?.(...args),
     (...args) => channelClosedCallback?.(...args),
-    () => syncNeededCallback?.()
+    () => syncNeededCallback?.(),
+    (...args) => connectionNeededCallback?.(...args)
   )
 
   // ChannelManager VSS version ref — seeded from recovery or migration, updated by persistChannelManager
@@ -737,6 +740,9 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     },
     setSyncNeededCallback: (cb: SyncNeededCallback | undefined) => {
       syncNeededCallback = cb
+    },
+    setConnectionNeededCallback: (cb: ConnectionNeededCallback | undefined) => {
+      connectionNeededCallback = cb
     },
     cmPersistCtx,
   }

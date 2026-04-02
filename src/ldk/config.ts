@@ -39,7 +39,7 @@ const NETWORK_CONFIGS: Record<NetworkId, LdkConfig> = {
     esploraUrl: 'https://mempool.space/api',
     esploraFallbackUrl: 'https://blockstream.info/api',
     chainPollIntervalMs: 30_000,
-    wsProxyUrl: '',
+    wsProxyUrl: 'wss://proxy.zinqq.app',
     peerTimerIntervalMs: 10_000,
     rgsUrl: 'https://rapidsync.lightningdevkit.org/snapshot',
     rgsSyncIntervalTicks: 60,
