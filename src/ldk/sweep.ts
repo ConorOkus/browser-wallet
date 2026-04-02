@@ -69,7 +69,8 @@ let sweepInProgress = false
 export async function sweepSpendableOutputs(
   keysManager: KeysManager,
   destinationScript: Uint8Array,
-  esploraUrl: string
+  esploraUrl: string,
+  esploraFallbackUrl?: string
 ): Promise<SweepResult> {
   if (sweepInProgress) return { swept: 0, skipped: 0, txid: null }
   sweepInProgress = true
@@ -133,7 +134,7 @@ export async function sweepSpendableOutputs(
     }
 
     const txHex = bytesToHex(result.res)
-    const txid = await broadcastWithRetry(esploraUrl, txHex)
+    const txid = await broadcastWithRetry(esploraUrl, txHex, esploraFallbackUrl)
 
     // Clean up IDB entries atomically after successful broadcast
     await idbDeleteBatch('ldk_spendable_outputs', idbKeys)

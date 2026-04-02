@@ -14,8 +14,11 @@ ALLOWED_PORTS = "9735,9736,9737"
 
 [env.production]
 name = "ln-ws-proxy-production"
+routes = [
+  { pattern = "proxy.zinqq.app", custom_domain = true },
+]
 # IMPORTANT: Set ALLOWED_ORIGINS to your wallet's production domain before deploying.
 # An empty value will cause the proxy to return 500 for all requests.
 [env.production.vars]
-ALLOWED_ORIGINS = "https://zinqq-app-testnet.vercel.app,https://zinqq.com,https://testnet.zinqq.com"
+ALLOWED_ORIGINS = "https://zinqq.com,https://testnet.zinqq.com"
 ALLOWED_PORTS = "9735,9736,9737"

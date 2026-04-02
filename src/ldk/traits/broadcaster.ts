@@ -1,61 +1,97 @@
 import { BroadcasterInterface } from 'lightningdevkit'
 import { bytesToHex } from '../utils'
 import { idbPut, idbDelete, idbGetAll } from '../../storage/idb'
+import { captureError } from '../../storage/error-log'
 
 const MAX_BROADCAST_RETRIES = 5
+const FALLBACK_RETRIES = 3
 const RETRY_DELAY_MS = 1_000
 const PENDING_BROADCAST_TTL_MS = 48 * 60 * 60 * 1_000 // 48 hours
 
 const inflightTxs = new Set<string>()
 
-export async function broadcastWithRetry(esploraUrl: string, txHex: string): Promise<string> {
+async function postTxToEsplora(
+  url: string,
+  txHex: string
+): Promise<
+  { status: 'ok'; txid: string } | { status: 'known' } | { status: 'error'; body: string }
+> {
+  const res = await fetch(`${url}/tx`, { method: 'POST', body: txHex })
+  if (res.ok) {
+    return { status: 'ok', txid: await res.text() }
+  }
+  const body = await res.text()
+  const lower = body.toLowerCase()
+  if (
+    lower.includes('transaction already in block chain') ||
+    lower.includes('txn-already-known') ||
+    lower.includes('txn-already-confirmed')
+  ) {
+    return { status: 'known' }
+  }
+  return { status: 'error', body: `HTTP ${res.status.toString()}: ${body}` }
+}
+
+export async function broadcastWithRetry(
+  esploraUrl: string,
+  txHex: string,
+  fallbackUrl?: string
+): Promise<string> {
   if (inflightTxs.has(txHex)) {
     console.info('[LDK Broadcaster] Skipping duplicate in-flight broadcast')
     return 'in-flight'
   }
   inflightTxs.add(txHex)
   try {
-    for (let attempt = 1; attempt <= MAX_BROADCAST_RETRIES; attempt++) {
-      try {
-        const res = await fetch(`${esploraUrl}/tx`, {
-          method: 'POST',
-          body: txHex,
-        })
-        if (res.ok) {
-          const txid = await res.text()
-          console.info(`[LDK Broadcaster] Broadcast tx: ${txid}`)
-          return txid
-        }
-        const body = await res.text()
-        const lower = body.toLowerCase()
-        if (
-          lower.includes('transaction already in block chain') ||
-          lower.includes('txn-already-known') ||
-          lower.includes('txn-already-confirmed')
-        ) {
-          console.info('[LDK Broadcaster] Tx already known, skipping retry')
-          return 'already-broadcast'
-        }
-        throw new Error(`HTTP ${res.status.toString()}: ${body}`)
-      } catch (err: unknown) {
-        console.error(
-          `[LDK Broadcaster] Broadcast attempt ${attempt.toString()}/${MAX_BROADCAST_RETRIES.toString()} failed:`,
-          err
-        )
-        if (attempt < MAX_BROADCAST_RETRIES) {
-          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * 2 ** (attempt - 1)))
-        }
-      }
+    // Try primary esplora with retries
+    const primaryResult = await tryBroadcast(esploraUrl, txHex, MAX_BROADCAST_RETRIES, 'primary')
+    if (primaryResult) return primaryResult
+
+    // Try fallback esplora with retries
+    if (fallbackUrl) {
+      console.warn('[LDK Broadcaster] Primary esplora exhausted, trying fallback:', fallbackUrl)
+      const fallbackResult = await tryBroadcast(fallbackUrl, txHex, FALLBACK_RETRIES, 'fallback')
+      if (fallbackResult) return fallbackResult
     }
-    throw new Error(
-      `All ${MAX_BROADCAST_RETRIES.toString()} broadcast attempts failed for tx ${txHex.slice(0, 16)}...`
-    )
+
+    throw new Error(`All broadcast attempts failed for tx ${txHex.slice(0, 16)}...`)
   } finally {
     inflightTxs.delete(txHex)
   }
 }
 
-export function createBroadcaster(esploraUrl: string): BroadcasterInterface {
+async function tryBroadcast(
+  url: string,
+  txHex: string,
+  maxRetries: number,
+  label: string
+): Promise<string | null> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await postTxToEsplora(url, txHex)
+      if (result.status === 'ok') {
+        console.info(`[LDK Broadcaster] Broadcast tx (${label}): ${result.txid}`)
+        return result.txid
+      }
+      if (result.status === 'known') {
+        console.info(`[LDK Broadcaster] Tx already known (${label})`)
+        return 'already-broadcast'
+      }
+      throw new Error(result.body)
+    } catch (err: unknown) {
+      console.error(
+        `[LDK Broadcaster] ${label} attempt ${attempt.toString()}/${maxRetries.toString()} failed:`,
+        err
+      )
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * 2 ** (attempt - 1)))
+      }
+    }
+  }
+  return null
+}
+
+export function createBroadcaster(esploraUrl: string, fallbackUrl?: string): BroadcasterInterface {
   return BroadcasterInterface.new_impl({
     broadcast_transactions(txs: Uint8Array[]): void {
       for (const tx of txs) {
@@ -70,11 +106,16 @@ export function createBroadcaster(esploraUrl: string): BroadcasterInterface {
         }).catch((err: unknown) =>
           console.error('[LDK Broadcaster] Failed to persist pending tx:', err)
         )
-        void broadcastWithRetry(esploraUrl, txHex)
+        void broadcastWithRetry(esploraUrl, txHex, fallbackUrl)
           .then(() => persisted)
           .then(() => idbDelete('ldk_pending_broadcasts', txHex))
           .catch((err: unknown) => {
-            console.error('[LDK Broadcaster] CRITICAL: broadcast failed:', err)
+            captureError(
+              'critical',
+              'Broadcaster',
+              'Broadcast failed after all retries',
+              String(err)
+            )
           })
       }
     },
@@ -90,7 +131,10 @@ export function createBroadcaster(esploraUrl: string): BroadcasterInterface {
  * all broadcasts finish. Broadcasts run in the background via fire-and-forget.
  * Entries older than PENDING_BROADCAST_TTL_MS are discarded (inputs likely spent).
  */
-export async function drainPendingBroadcasts(esploraUrl: string): Promise<void> {
+export async function drainPendingBroadcasts(
+  esploraUrl: string,
+  fallbackUrl?: string
+): Promise<void> {
   const pending = await idbGetAll<{ txHex: string; createdAt: number }>('ldk_pending_broadcasts')
   if (pending.size === 0) return
 
@@ -105,7 +149,7 @@ export async function drainPendingBroadcasts(esploraUrl: string): Promise<void> 
       continue
     }
     drained++
-    void broadcastWithRetry(esploraUrl, entry.txHex)
+    void broadcastWithRetry(esploraUrl, entry.txHex, fallbackUrl)
       .then(() => idbDelete('ldk_pending_broadcasts', key))
       .catch((err: unknown) =>
         console.error('[LDK Broadcaster] Pending broadcast retry failed:', err)

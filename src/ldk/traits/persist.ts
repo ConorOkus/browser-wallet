@@ -9,6 +9,7 @@ import {
 import { idbPut, idbDelete } from '../../storage/idb'
 import { bytesToHex } from '../utils'
 import { isVssConflict, type VssClient } from '../storage/vss-client'
+import { captureError } from '../../storage/error-log'
 
 function outpointKey(outpoint: OutPoint): string {
   return `${bytesToHex(outpoint.get_txid())}:${outpoint.get_index().toString()}`
@@ -247,7 +248,7 @@ export function createPersister(options: PersisterOptions = {}): {
       .catch((err: unknown) => {
         // Do NOT call channel_monitor_updated — LDK will halt channel operations (safe)
         const error = err instanceof Error ? err : new Error(String(err))
-        console.error(`[LDK Persist] CRITICAL: Monitor persistence failed for ${key}:`, error)
+        captureError('critical', 'Persist', `Monitor persistence failed for ${key}`, error.message)
         if (failureHandler) {
           failureHandler({ key, error })
         }

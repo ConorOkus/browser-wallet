@@ -26,6 +26,10 @@ import {
   PaymentFailureReason,
   Result_NoneReplayEventZ,
   Result_NoneAPIErrorZ_Err,
+  SocketAddress_TcpIpV4,
+  SocketAddress_TcpIpV6,
+  SocketAddress_Hostname,
+  type BumpTransactionEventHandler,
   type ClosureReason,
   ClosureReason_CounterpartyForceClosed,
   ClosureReason_HolderForceClosed,
@@ -43,6 +47,7 @@ import {
   ClosureReason_PeerFeerateTooLow,
   type ChannelManager,
   type KeysManager,
+  type SocketAddress,
   type Event,
 } from 'lightningdevkit'
 import { Wallet, Recipient, ScriptBuf, Amount, SignOptions } from '@bitcoindevkit/bdk-wallet-web'
@@ -53,7 +58,9 @@ import { revealNextAddress } from '../../onchain/address-utils'
 import { putChangeset } from '../../onchain/storage/changeset'
 import { broadcastWithRetry } from './broadcaster'
 import { ONCHAIN_CONFIG } from '../../onchain/config'
+import { LDK_CONFIG } from '../config'
 import { sweepSpendableOutputs } from '../sweep'
+import { captureError } from '../../storage/error-log'
 
 const MAX_FORWARD_DELAY_MS = 10_000
 
@@ -68,6 +75,8 @@ export type ChannelClosedCallback = (counterpartyPubkeyHex: string) => void
 
 export type SyncNeededCallback = () => void
 
+export type ConnectionNeededCallback = (nodeIdHex: string, host: string, port: number) => void
+
 export function createEventHandler(
   channelManager: ChannelManager,
   keysManager: KeysManager,
@@ -75,7 +84,9 @@ export function createEventHandler(
   lspNodeId: string,
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
-  onSyncNeeded?: SyncNeededCallback
+  onSyncNeeded?: SyncNeededCallback,
+  onConnectionNeeded?: ConnectionNeededCallback,
+  bumpTxHandler?: BumpTransactionEventHandler
 ): {
   handler: EventHandler
   cleanup: () => void
@@ -97,7 +108,9 @@ export function createEventHandler(
           },
           onPaymentEvent,
           onChannelClosed,
-          onSyncNeeded
+          onSyncNeeded,
+          onConnectionNeeded,
+          bumpTxHandler
         )
       } catch (err: unknown) {
         console.error('[LDK Event] Unhandled error in event handler:', err)
@@ -109,7 +122,12 @@ export function createEventHandler(
   // Startup sweep recovery: sweep any SpendableOutputs persisted from a
   // previous session (crash recovery). BDK wallet is always available now.
   const destinationScript = revealNextAddress(bdkWallet, 'LDK')
-  void sweepSpendableOutputs(keysManager, destinationScript, ONCHAIN_CONFIG.esploraUrl)
+  void sweepSpendableOutputs(
+    keysManager,
+    destinationScript,
+    ONCHAIN_CONFIG.esploraUrl,
+    LDK_CONFIG.esploraFallbackUrl
+  )
     .then((result) => {
       if (result.swept > 0) {
         console.log('[LDK] Startup sweep: swept', result.swept, 'output(s), txid:', result.txid)
@@ -139,7 +157,9 @@ function handleEvent(
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
-  onSyncNeeded?: SyncNeededCallback
+  onSyncNeeded?: SyncNeededCallback,
+  onConnectionNeeded?: ConnectionNeededCallback,
+  bumpTxHandler?: BumpTransactionEventHandler
 ): void {
   // Payment events
   if (event instanceof Event_PaymentClaimable) {
@@ -251,12 +271,19 @@ function handleEvent(
 
   // Channel lifecycle
   if (event instanceof Event_ChannelPending) {
+    const channelIdHex = bytesToHex(event.channel_id.write())
+    const tempIdHex = bytesToHex(event.former_temporary_channel_id.write())
     console.log(
       '[LDK Event] ChannelPending:',
       'channelId:',
-      bytesToHex(event.channel_id.write()).substring(0, 16) + '…',
+      channelIdHex.substring(0, 16) + '…',
       'counterparty:',
       bytesToHex(event.counterparty_node_id).substring(0, 16) + '…'
+    )
+    // Store final→temp channel ID mapping so DiscardFunding can clean up
+    // orphaned funding tx entries keyed by temporary channel ID.
+    void idbPut('ldk_channel_id_map', channelIdHex, tempIdHex).catch((err: unknown) =>
+      console.warn('[LDK Event] Failed to persist channel ID mapping:', err)
     )
     return
   }
@@ -290,6 +317,9 @@ function handleEvent(
     // the closing transaction output (cooperative close pays directly
     // to BDK's shutdown script address).
     onSyncNeeded?.()
+
+    // Clean up channel ID mapping (best-effort)
+    void idbDelete('ldk_channel_id_map', channelIdHex).catch(() => {})
     return
   }
 
@@ -304,7 +334,12 @@ function handleEvent(
     void idbPut('ldk_spendable_outputs', key, serialized)
       .then(() => {
         const destinationScript = revealNextAddress(bdkWallet, 'LDK Event')
-        return sweepSpendableOutputs(keysManager, destinationScript, ONCHAIN_CONFIG.esploraUrl)
+        return sweepSpendableOutputs(
+          keysManager,
+          destinationScript,
+          ONCHAIN_CONFIG.esploraUrl,
+          LDK_CONFIG.esploraFallbackUrl
+        )
       })
       .then((result) => {
         if (result && result.swept > 0) {
@@ -317,7 +352,12 @@ function handleEvent(
         }
       })
       .catch((err: unknown) => {
-        console.error('[LDK Event] CRITICAL: Failed to persist/sweep SpendableOutputs:', err)
+        captureError(
+          'critical',
+          'Event:SpendableOutputs',
+          'Failed to persist/sweep outputs',
+          String(err)
+        )
       })
     console.log(
       '[LDK Event] SpendableOutputs: persisting',
@@ -327,13 +367,25 @@ function handleEvent(
     return
   }
 
-  // Peer reconnection — SocketAddress parsing not yet implemented
+  // Peer reconnection — parse first usable address and reconnect
   if (event instanceof Event_ConnectionNeeded) {
-    console.warn(
-      '[LDK Event] ConnectionNeeded:',
-      bytesToHex(event.node_id),
-      '— SocketAddress parsing not yet implemented'
-    )
+    const nodeIdHex = bytesToHex(event.node_id)
+    const parsed = parseFirstSocketAddress(event.addresses)
+    if (parsed && onConnectionNeeded) {
+      console.log(
+        '[LDK Event] ConnectionNeeded:',
+        nodeIdHex.substring(0, 16) + '…',
+        'connecting to',
+        `${parsed.host}:${parsed.port}`
+      )
+      onConnectionNeeded(nodeIdHex, parsed.host, parsed.port)
+    } else {
+      console.warn(
+        '[LDK Event] ConnectionNeeded:',
+        nodeIdHex.substring(0, 16) + '…',
+        parsed ? '— no callback registered' : '— no usable address in event'
+      )
+    }
     return
   }
 
@@ -421,26 +473,43 @@ function handleEvent(
   }
 
   if (event instanceof Event_BumpTransaction) {
-    // TODO: Implement CPFP with BDK UTXOs for anchor channels.
-    // Anchor channels are disabled in UserConfig, so this should not fire for new
-    // channels. If it does, it means a pre-existing anchor channel is force-closing.
-    console.error(
-      '[LDK Event] CRITICAL: BumpTransaction received but CPFP not implemented. ' +
-        'Anchor channel force-close transaction may be stuck.'
-    )
+    if (bumpTxHandler) {
+      console.log('[LDK Event] BumpTransaction: handling CPFP fee bump')
+      try {
+        bumpTxHandler.handle_event(event.bump_transaction)
+      } catch (err: unknown) {
+        captureError('critical', 'Event:BumpTransaction', 'CPFP handling failed', String(err))
+      }
+    } else {
+      captureError(
+        'critical',
+        'Event:BumpTransaction',
+        'No handler configured — force-close tx may be stuck'
+      )
+    }
     return
   }
 
   if (event instanceof Event_DiscardFunding) {
-    // DiscardFunding provides channel_id (final, not temporary), so we cannot
-    // directly look up the persisted funding tx by temporary_channel_id.
-    // Orphaned entries in ldk_funding_txs are small (a few hundred bytes each)
-    // and will accumulate slowly. This is acceptable for now.
-    // TODO: Store a temp→final channel ID mapping in ChannelPending to enable cleanup.
-    console.log(
-      '[LDK Event] DiscardFunding:',
-      bytesToHex(event.channel_id.write()).substring(0, 16) + '...'
-    )
+    const channelIdHex = bytesToHex(event.channel_id.write())
+    console.log('[LDK Event] DiscardFunding:', channelIdHex.substring(0, 16) + '...')
+    // Look up the temporary channel ID from the mapping stored in ChannelPending,
+    // then delete the orphaned funding tx and the mapping itself.
+    void (async () => {
+      try {
+        const tempIdHex = await idbGet<string>('ldk_channel_id_map', channelIdHex)
+        if (tempIdHex) {
+          await idbDelete('ldk_funding_txs', tempIdHex)
+          await idbDelete('ldk_channel_id_map', channelIdHex)
+          console.log(
+            '[LDK Event] DiscardFunding: cleaned up funding tx for',
+            tempIdHex.substring(0, 16) + '...'
+          )
+        }
+      } catch (err: unknown) {
+        console.warn('[LDK Event] DiscardFunding: cleanup failed:', err)
+      }
+    })()
     return
   }
 
@@ -513,6 +582,30 @@ async function broadcastPersistedFundingTx(tempChannelIdHex: string): Promise<vo
   const txid = await broadcastWithRetry(ONCHAIN_CONFIG.esploraUrl, txHex)
   void idbDelete('ldk_funding_txs', tempChannelIdHex).catch(() => {})
   console.log('[LDK Event] FundingTxBroadcastSafe: broadcast tx:', txid)
+}
+
+function parseFirstSocketAddress(
+  addresses: SocketAddress[]
+): { host: string; port: number } | null {
+  for (const addr of addresses) {
+    if (addr instanceof SocketAddress_TcpIpV4) {
+      const bytes = addr.addr
+      const host = `${bytes[0]}.${bytes[1]}.${bytes[2]}.${bytes[3]}`
+      return { host, port: addr.port }
+    }
+    if (addr instanceof SocketAddress_TcpIpV6) {
+      const b = addr.addr
+      const groups: string[] = []
+      for (let i = 0; i < 16; i += 2) {
+        groups.push(((b[i]! << 8) | b[i + 1]!).toString(16))
+      }
+      return { host: groups.join(':'), port: addr.port }
+    }
+    if (addr instanceof SocketAddress_Hostname) {
+      return { host: addr.hostname.to_str(), port: addr.port }
+    }
+  }
+  return null
 }
 
 function describeClosureReason(reason: ClosureReason): string {
