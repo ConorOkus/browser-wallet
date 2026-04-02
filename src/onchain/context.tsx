@@ -30,6 +30,12 @@ const DEFAULT_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 4n : 1n
 const MIN_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 2n : 1n
 const MAX_FEE_SATS = 50_000n
 
+// Reserve UTXOs for anchor channel CPFP fee bumping. When the user has
+// open Lightning channels, the on-chain wallet must retain enough sats
+// to fund a child transaction if a force-close requires fee bumping.
+// 10,000 sats covers a ~150 vB CPFP at ~50 sat/vB.
+const ANCHOR_RESERVE_SATS = 10_000n
+
 async function getFeeRate(esploraClient: EsploraClient): Promise<bigint> {
   try {
     const estimates = await esploraClient.get_fee_estimates()
@@ -88,13 +94,21 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
   const bdkWalletRef = useRef<Wallet | null>(null)
   const bdkEsploraRef = useRef<EsploraClient | null>(null)
   const setSyncNeededRef = useRef<((cb: SyncNeededCallback | undefined) => void) | null>(null)
+  const listChannelsRef = useRef<(() => unknown[]) | null>(null)
 
   useEffect(() => {
     if (ldk.status !== 'ready') return
     bdkWalletRef.current = ldk.bdkWallet
     bdkEsploraRef.current = ldk.bdkEsploraClient
     setSyncNeededRef.current = ldk.setSyncNeeded
+    listChannelsRef.current = ldk.listChannels
   }, [ldk])
+
+  /** Returns the anchor reserve if the user has open Lightning channels, 0 otherwise. */
+  const getAnchorReserve = useCallback((): bigint => {
+    const channels = listChannelsRef.current?.() ?? []
+    return channels.length > 0 ? ANCHOR_RESERVE_SATS : 0n
+  }, [])
 
   // Stable syncNow callback that delegates to the sync handle.
   // Exposed via context so the LDK layer can trigger immediate BDK sync after channel close.
@@ -257,20 +271,38 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
         wallet.build_tx().drain_wallet().drain_to(addr.script_pubkey).fee_rate(feeRate).finish()
       )
 
-      // Total inputs minus fee = amount sent
+      // Total inputs minus fee minus anchor reserve = max sendable amount
       const balance = wallet.balance
       const totalAvailable = balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
-      const amount = totalAvailable - fee
+      const reserve = getAnchorReserve()
+      const amount = totalAvailable - fee - reserve
+      if (amount < 0n) {
+        return { amount: 0n, fee, feeRate }
+      }
 
       return { amount, fee, feeRate }
     },
-    [buildAndEstimate]
+    [buildAndEstimate, getAnchorReserve]
   )
 
   const sendToAddress = useCallback(
     async (address: string, amountSats: bigint, feeRateSatVb?: bigint): Promise<string> => {
       const wallet = walletRef.current
       if (!wallet) throw new Error('Wallet not ready')
+
+      // Check anchor reserve: reject if send would leave less than reserve
+      const reserve = getAnchorReserve()
+      if (reserve > 0n) {
+        const balance = wallet.balance
+        const available = balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
+        // Rough check: amount + reserve > available (fee not yet known, but this
+        // catches obvious cases; BDK will throw InsufficientFunds for the rest)
+        if (amountSats + reserve > available) {
+          throw new Error(
+            `Insufficient funds after reserving ${ANCHOR_RESERVE_SATS.toString()} sats for Lightning channel safety`
+          )
+        }
+      }
 
       const addr = Address.from_string(address, ONCHAIN_CONFIG.network)
       return buildSignBroadcast(
@@ -284,7 +316,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
         feeRateSatVb
       )
     },
-    [buildSignBroadcast]
+    [buildSignBroadcast, getAnchorReserve]
   )
 
   const sendMax = useCallback(
@@ -292,15 +324,41 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       const wallet = walletRef.current
       if (!wallet) throw new Error('Wallet not ready')
 
+      const reserve = getAnchorReserve()
       const addr = Address.from_string(address, ONCHAIN_CONFIG.network)
+
+      if (reserve === 0n) {
+        // No channels — safe to drain everything
+        return buildSignBroadcast(
+          (feeRate) =>
+            wallet
+              .build_tx()
+              .drain_wallet()
+              .drain_to(addr.script_pubkey)
+              .fee_rate(feeRate)
+              .finish(),
+          feeRateSatVb
+        )
+      }
+
+      // Has channels — estimate max sendable then send as fixed amount to preserve reserve
+      const { amount } = await estimateMaxSendable(addr.toString())
+      if (amount <= 0n) {
+        throw new Error(
+          `Insufficient funds after reserving ${ANCHOR_RESERVE_SATS.toString()} sats for Lightning channel safety`
+        )
+      }
       return buildSignBroadcast(
         (feeRate) =>
-          // TxBuilder methods consume self — must chain calls
-          wallet.build_tx().drain_wallet().drain_to(addr.script_pubkey).fee_rate(feeRate).finish(),
+          wallet
+            .build_tx()
+            .add_recipient(Recipient.from_address(addr, Amount.from_sat(amount)))
+            .fee_rate(feeRate)
+            .finish(),
         feeRateSatVb
       )
     },
-    [buildSignBroadcast]
+    [buildSignBroadcast, getAnchorReserve, estimateMaxSendable]
   )
 
   // Track whether LDK has become ready so the init effect runs once.

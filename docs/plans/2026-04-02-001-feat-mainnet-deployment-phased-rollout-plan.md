@@ -123,7 +123,7 @@ Config selected at build time via `VITE_NETWORK` env var in `src/ldk/config.ts:5
 - [x] BOLT 12 offers validated against active network (or send disabled on mainnet)
 - [x] BumpTransaction handler creates and broadcasts CPFP transactions
 - [x] Anchor channels enabled in UserConfig
-- [ ] BDK wallet reserves anchor-spend UTXO
+- [x] BDK wallet reserves anchor-spend UTXO
 - [x] Broadcaster falls back to blockstream.info on mempool.space failure
 - [x] Sweep uses fallback esplora on primary failure
 
