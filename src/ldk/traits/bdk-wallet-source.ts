@@ -10,7 +10,7 @@ import {
 } from 'lightningdevkit'
 import { type Wallet, SignOptions, Psbt } from '@bitcoindevkit/bdk-wallet-web'
 import { revealNextAddress } from '../../onchain/address-utils'
-import { hexToBytes, bytesToHex } from '../utils'
+import { hexToBytes } from '../utils'
 
 // P2WPKH witness: ~107 weight units (DER sig + compressed pubkey)
 const P2WPKH_SATISFACTION_WEIGHT = 107n

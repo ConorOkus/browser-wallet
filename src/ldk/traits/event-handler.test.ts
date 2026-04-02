@@ -549,6 +549,7 @@ describe('createEventHandler', () => {
     const handler = (result.handler as unknown as { _impl: { handle_event: HandleEventFn } })._impl
       .handle_event
 
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const event = Object.assign(new Event_ConnectionNeeded(), {
       addresses: [new SocketAddress_TcpIpV4(new Uint8Array([192, 168, 1, 100]), 9735)],
     })
@@ -579,6 +580,7 @@ describe('createEventHandler', () => {
     const handler = (result.handler as unknown as { _impl: { handle_event: HandleEventFn } })._impl
       .handle_event
 
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const event = Object.assign(new Event_ConnectionNeeded(), {
       addresses: [new SocketAddress_Hostname('node.example.com', 9735)],
     })
