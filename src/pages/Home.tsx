@@ -61,13 +61,9 @@ export function Home() {
         <div className="mx-auto max-w-xs rounded-xl bg-black/20 p-4 text-center text-sm text-on-accent backdrop-blur-sm">
           <p className="font-semibold">Add to Home Screen</p>
           <p className="mt-1 text-[var(--color-on-accent-muted)]">
-            Tap the share button in Safari, then select &ldquo;Add to Home
-            Screen&rdquo;
+            Tap the share button in Safari, then select &ldquo;Add to Home Screen&rdquo;
           </p>
-          <button
-            className="mt-3 text-xs underline"
-            onClick={() => setShowIosHint(false)}
-          >
+          <button className="mt-3 text-xs underline" onClick={() => setShowIosHint(false)}>
             Dismiss
           </button>
         </div>

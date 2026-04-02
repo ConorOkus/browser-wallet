@@ -12,10 +12,7 @@ export function UpdateBanner() {
     if (!('serviceWorker' in navigator)) return
     const reg = navigator.serviceWorker.ready
     void reg.then((registration) => {
-      intervalRef.current = setInterval(
-        () => void registration.update(),
-        60 * 60 * 1000
-      )
+      intervalRef.current = setInterval(() => void registration.update(), 60 * 60 * 1000)
     })
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
