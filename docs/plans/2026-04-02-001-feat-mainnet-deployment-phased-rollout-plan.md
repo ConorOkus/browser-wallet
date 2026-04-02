@@ -1,5 +1,5 @@
 ---
-title: "feat: Mainnet Deployment — Phased Rollout"
+title: 'feat: Mainnet Deployment — Phased Rollout'
 type: feat
 status: active
 date: 2026-04-02
@@ -29,6 +29,7 @@ Three phases, each gated on the previous:
 ### Architecture
 
 Separate Vercel deployments per network (see brainstorm: `docs/brainstorms/2026-04-02-mainnet-deployment-brainstorm.md`):
+
 - `zinqq.com` → mainnet (`VITE_NETWORK=mainnet`)
 - `testnet.zinqq.com` → signet (`VITE_NETWORK=signet`)
 
@@ -76,6 +77,7 @@ Config selected at build time via `VITE_NETWORK` env var in `src/ldk/config.ts:5
 - **Files:** Vercel dashboard, `vercel.json`, `api/vss-proxy.ts`
 
 **Phase 1 exit criteria:**
+
 - [x] App starts on mainnet without errors
 - [x] Connects to mainnet peers via WS proxy
 - [ ] Chain sync completes (genesis block verification passes at `src/ldk/init.ts:216-223`)
@@ -120,6 +122,7 @@ Config selected at build time via `VITE_NETWORK` env var in `src/ldk/config.ts:5
 - **Files:** `src/ldk/traits/broadcaster.ts`, `src/ldk/sweep.ts`, possibly `src/ldk/config.ts`
 
 **Phase 2 exit criteria:**
+
 - [x] BOLT 12 offers validated against active network (or send disabled on mainnet)
 - [x] BumpTransaction handler creates and broadcasts CPFP transactions
 - [x] Anchor channels enabled in UserConfig
@@ -160,6 +163,7 @@ Config selected at build time via `VITE_NETWORK` env var in `src/ldk/config.ts:5
 ##### PR 3.4 — Mainnet smoke test checklist
 
 Execute manually with real (small amount) mainnet funds:
+
 - [ ] Open JIT channel via LSP (receive Lightning payment)
 - [ ] Send Lightning payment (BOLT 11)
 - [ ] Send Lightning payment (BOLT 12) — if enabled
@@ -173,6 +177,7 @@ Execute manually with real (small amount) mainnet funds:
 - [ ] Test peer reconnection after disconnect
 
 **Phase 3 exit criteria:**
+
 - [x] No orphaned IDB entries on failed channel opens
 - [x] Error monitoring captures critical failures
 - [x] Rollback procedure documented and reviewed
@@ -185,6 +190,7 @@ Execute manually with real (small amount) mainnet funds:
 ### Interaction Graph
 
 Network selection (`VITE_NETWORK`) flows through:
+
 1. `config.ts` → exports `CONFIG` and `ONCHAIN_CONFIG` used by all LDK and BDK modules
 2. `init.ts` → validates genesis block hash, configures LSP, creates ChannelManager
 3. `payment-input.ts` → validates addresses, invoices, offers against active network
@@ -224,13 +230,13 @@ Network selection (`VITE_NETWORK`) flows through:
 
 ## Dependencies & Risks
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| BOLT 12 validation blocked by LDK WASM API gap | High | High | Ship with BOLT 12 send disabled on mainnet (Option C), follow up when LDK exposes `offer.chains()` |
-| LSP liquidity insufficient | Low | High | LSP is confirmed funded (see brainstorm) |
-| Mempool.space outage during force-close | Medium | High | Broadcaster fallback to blockstream.info (PR 2.3) |
-| VSS cross-contamination | Low | Critical | Separate instances + genesis block verification + explicit `VSS_PROXY_TARGET` per Vercel project |
-| Browser storage quota exhaustion | Low | Medium | Monitor IDB usage, clean up closed channel monitors |
+| Risk                                           | Likelihood | Impact   | Mitigation                                                                                         |
+| ---------------------------------------------- | ---------- | -------- | -------------------------------------------------------------------------------------------------- |
+| BOLT 12 validation blocked by LDK WASM API gap | High       | High     | Ship with BOLT 12 send disabled on mainnet (Option C), follow up when LDK exposes `offer.chains()` |
+| LSP liquidity insufficient                     | Low        | High     | LSP is confirmed funded (see brainstorm)                                                           |
+| Mempool.space outage during force-close        | Medium     | High     | Broadcaster fallback to blockstream.info (PR 2.3)                                                  |
+| VSS cross-contamination                        | Low        | Critical | Separate instances + genesis block verification + explicit `VSS_PROXY_TARGET` per Vercel project   |
+| Browser storage quota exhaustion               | Low        | Medium   | Monitor IDB usage, clean up closed channel monitors                                                |
 
 ## Sources & References
 

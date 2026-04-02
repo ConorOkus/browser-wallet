@@ -44,6 +44,7 @@ C7 from the safety audit. Without fee bumping, force-close scenarios on mainnet 
 Deploy the WS proxy and wire all mainnet config so the app can connect to mainnet peers and services.
 
 **Work items:**
+
 - Deploy Cloudflare Workers WS proxy to production (from `proxy/` directory)
 - Set `wsProxyUrl` in mainnet LDK config
 - Update mainnet LSP node ID and host in config
@@ -58,6 +59,7 @@ Deploy the WS proxy and wire all mainnet config so the app can connect to mainne
 Fix all Critical and must-have items from the safety audit.
 
 **Work items (audit references):**
+
 - **C1:** Network-aware BOLT 11 currency check (`payment-input.ts`)
 - **C2:** Network-aware on-chain address regex (`payment-input.ts`)
 - **C3:** BOLT 12 network validation (`payment-input.ts`)
@@ -74,6 +76,7 @@ Fix all Critical and must-have items from the safety audit.
 Address High-priority items and operational readiness.
 
 **Work items:**
+
 - **H2:** Deterministic channel key IDs for cross-device recovery
 - **H4:** Remove signer provider fallback (fail loudly)
 - **H5:** Block channel progress if funding tx persistence fails

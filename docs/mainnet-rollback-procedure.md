@@ -5,13 +5,16 @@ What to do if the mainnet deployment (`zinqq.com`) hits a critical bug after use
 ## Severity Levels
 
 ### Level 1: UI bug, no fund risk
+
 - Fix and redeploy. No special procedure needed.
 
 ### Level 2: Payments broken, funds safe
+
 - Deploy a fix or revert the last deployment.
 - Channels remain open and safe; users just can't send/receive until fixed.
 
 ### Level 3: Fund safety risk (force-close bug, persistence failure, etc.)
+
 - Follow the full procedure below.
 
 ## Full Rollback Procedure
