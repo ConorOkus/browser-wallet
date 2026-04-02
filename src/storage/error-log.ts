@@ -13,6 +13,8 @@ export interface ErrorLogEntry {
 
 const MAX_ENTRIES = 100
 
+let callsSinceLastPrune = 0
+
 /**
  * Capture a structured error to the local IDB error log.
  * Also logs to console at the appropriate level.
@@ -41,8 +43,11 @@ export function captureError(
     // If IDB write fails, the console.error above is the fallback
   })
 
-  // Prune old entries in the background
-  void pruneErrorLog().catch(() => {})
+  // Prune old entries every 10th capture to avoid IDB churn
+  if (++callsSinceLastPrune >= 10) {
+    callsSinceLastPrune = 0
+    void pruneErrorLog().catch(() => {})
+  }
 }
 
 async function pruneErrorLog(): Promise<void> {
@@ -52,29 +57,4 @@ async function pruneErrorLog(): Promise<void> {
   const sorted = [...all.entries()].sort(([, a], [, b]) => a.timestamp - b.timestamp)
   const toDelete = sorted.slice(0, sorted.length - MAX_ENTRIES).map(([key]) => key)
   await idbDeleteBatch('ldk_error_log', toDelete)
-}
-
-/**
- * Get all error log entries, sorted newest first.
- */
-export async function getErrorLog(): Promise<ErrorLogEntry[]> {
-  const all = await idbGetAll<ErrorLogEntry>('ldk_error_log')
-  return [...all.values()].sort((a, b) => b.timestamp - a.timestamp)
-}
-
-/**
- * Export the error log as a privacy-safe string for sharing.
- * Strips any data that could identify the user — only includes
- * severity, source, message, and timestamps.
- */
-export async function exportErrorLog(): Promise<string> {
-  const entries = await getErrorLog()
-  if (entries.length === 0) return 'No errors recorded.'
-
-  const lines = entries.map((e) => {
-    const date = new Date(e.timestamp).toISOString()
-    return `[${date}] ${e.severity.toUpperCase()} (${e.source}) ${e.message}${e.detail ? '\n  ' + e.detail : ''}`
-  })
-
-  return `Zinq Error Log (${entries.length} entries)\n${'='.repeat(40)}\n${lines.join('\n')}`
 }

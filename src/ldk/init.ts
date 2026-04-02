@@ -105,6 +105,7 @@ export interface InitResult {
   setPaymentCallback: (cb: PaymentEventCallback | undefined) => void
   setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => void
   setSyncNeededCallback: (cb: SyncNeededCallback | undefined) => void
+  setConnectionNeededCallback: (cb: ConnectionNeededCallback | undefined) => void
   cmPersistCtx: CmPersistContext
 }
 
@@ -116,9 +117,9 @@ function createUserConfig(): UserConfig {
   const handshakeConfig = config.get_channel_handshake_config()
   handshakeConfig.set_negotiate_scid_privacy(true)
 
-  // Disable anchor channels until Event_BumpTransaction CPFP is implemented.
-  // Without CPFP, force-close commitment txs cannot be fee-bumped during
-  // high-fee periods, risking fund loss.
+  // Enable anchor channels — BumpTransactionEventHandler (created in step 14)
+  // handles CPFP fee bumping for force-close commitment transactions using
+  // BDK wallet UTXOs via the WalletSource bridge.
   handshakeConfig.set_negotiate_anchors_zero_fee_htlc_tx(true)
 
   // LSPS2: allow the full channel capacity for inbound HTLCs. The default (10%)

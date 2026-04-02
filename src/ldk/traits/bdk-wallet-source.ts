@@ -12,11 +12,7 @@ import { type Wallet, SignOptions, Psbt } from '@bitcoindevkit/bdk-wallet-web'
 import { revealNextAddress } from '../../onchain/address-utils'
 import { hexToBytes, bytesToHex } from '../utils'
 
-// P2WPKH witness: 1 (items count) + 1 (sig length) + 72 (DER sig) + 1 (pubkey length) + 33 (pubkey) = 108 bytes
-// Scaled by WITNESS_SCALE_FACTOR (4) for the script_sig portion (which is 0 for segwit): 0
-// Total satisfaction weight = 108 (witness) + 1 (witness items count byte in non-witness area = 0 for segwit)
-// Per BIP 141: witness data weight = witness bytes * 1, script_sig weight = script_sig bytes * 4
-// For P2WPKH: script_sig = empty (0 bytes), witness = ~107 bytes → satisfaction_weight ≈ 107
+// P2WPKH witness: ~107 weight units (DER sig + compressed pubkey)
 const P2WPKH_SATISFACTION_WEIGHT = 107n
 
 /**
@@ -33,13 +29,18 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
         const utxos: Utxo[] = []
 
         for (const output of unspent) {
+          // Only include confirmed UTXOs — LDK requires confirmed inputs for
+          // anchor CPFP. An unconfirmed parent could be dropped from the mempool,
+          // invalidating the CPFP child and leaving the force-close stuck.
+          const wtx = bdkWallet.get_tx(output.outpoint.txid)
+          if (!wtx || !wtx.chain_position.is_confirmed) continue
+
           const bdkOutpoint = output.outpoint
           const bdkTxout = output.txout
 
-          // Convert BDK txid (hex string, big-endian) to LDK txid (Uint8Array, little-endian)
+          // Convert BDK txid (display order, big-endian) to LDK (internal order, little-endian)
           const txidHex = bdkOutpoint.txid.toString()
-          const txidBytes = hexToBytes(txidHex)
-          txidBytes.reverse() // BDK returns display order (big-endian), LDK uses internal order (little-endian)
+          const txidBytes = Uint8Array.from(hexToBytes(txidHex)).reverse()
 
           const ldkOutpoint = LdkOutPoint.constructor_new(txidBytes, bdkOutpoint.vout)
           const scriptBytes = bdkTxout.script_pubkey.as_bytes()

@@ -140,7 +140,8 @@ function parseBolt12Offer(raw: string): ParsedPaymentInput {
   }
   const offer = result.res
 
-  // Validate offer chain hashes against the active network
+  // Validate offer chain hashes against the active network.
+  // Per BOLT 12, an offer with no chains field implicitly targets Bitcoin mainnet.
   const chains = offer.chains()
   if (chains.length > 0) {
     const genesisHash = LDK_CONFIG.genesisBlockHash
@@ -151,6 +152,9 @@ function parseBolt12Offer(raw: string): ParsedPaymentInput {
     if (!matchesNetwork) {
       return { type: 'error', message: 'Offer is for a different Bitcoin network' }
     }
+  } else if (ACTIVE_NETWORK !== 'mainnet') {
+    // Empty chains = implicit mainnet. Reject on non-mainnet networks.
+    return { type: 'error', message: 'Offer is for a different Bitcoin network' }
   }
 
   // Check expiry

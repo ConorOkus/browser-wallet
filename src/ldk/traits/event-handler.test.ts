@@ -76,6 +76,14 @@ vi.mock('lightningdevkit', () => {
       this.port = port
     }
   }
+  class SocketAddress_TcpIpV6 {
+    addr: Uint8Array
+    port: number
+    constructor(addr: Uint8Array, port: number) {
+      this.addr = addr
+      this.port = port
+    }
+  }
   class SocketAddress_Hostname {
     hostname: { to_str: () => string }
     port: number
@@ -201,6 +209,7 @@ vi.mock('lightningdevkit', () => {
     ClosureReason_HTLCsTimedOut,
     ClosureReason_PeerFeerateTooLow,
     SocketAddress_TcpIpV4,
+    SocketAddress_TcpIpV6,
     SocketAddress_Hostname,
     Result_NoneReplayEventZ: {
       constructor_ok: vi.fn(() => ({ is_ok: () => true })),
@@ -224,6 +233,9 @@ vi.mock('./broadcaster', () => ({
 
 vi.mock('../../onchain/config', () => ({
   ONCHAIN_CONFIG: { esploraUrl: 'https://test.esplora/api' },
+}))
+vi.mock('../config', () => ({
+  LDK_CONFIG: { esploraFallbackUrl: undefined },
 }))
 
 vi.mock('../../onchain/storage/changeset', () => ({

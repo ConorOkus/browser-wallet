@@ -27,6 +27,7 @@ import {
   Result_NoneReplayEventZ,
   Result_NoneAPIErrorZ_Err,
   SocketAddress_TcpIpV4,
+  SocketAddress_TcpIpV6,
   SocketAddress_Hostname,
   type BumpTransactionEventHandler,
   type ClosureReason,
@@ -57,6 +58,7 @@ import { revealNextAddress } from '../../onchain/address-utils'
 import { putChangeset } from '../../onchain/storage/changeset'
 import { broadcastWithRetry } from './broadcaster'
 import { ONCHAIN_CONFIG } from '../../onchain/config'
+import { LDK_CONFIG } from '../config'
 import { sweepSpendableOutputs } from '../sweep'
 import { captureError } from '../../storage/error-log'
 
@@ -120,7 +122,12 @@ export function createEventHandler(
   // Startup sweep recovery: sweep any SpendableOutputs persisted from a
   // previous session (crash recovery). BDK wallet is always available now.
   const destinationScript = revealNextAddress(bdkWallet, 'LDK')
-  void sweepSpendableOutputs(keysManager, destinationScript, ONCHAIN_CONFIG.esploraUrl)
+  void sweepSpendableOutputs(
+    keysManager,
+    destinationScript,
+    ONCHAIN_CONFIG.esploraUrl,
+    LDK_CONFIG.esploraFallbackUrl
+  )
     .then((result) => {
       if (result.swept > 0) {
         console.log('[LDK] Startup sweep: swept', result.swept, 'output(s), txid:', result.txid)
@@ -327,7 +334,12 @@ function handleEvent(
     void idbPut('ldk_spendable_outputs', key, serialized)
       .then(() => {
         const destinationScript = revealNextAddress(bdkWallet, 'LDK Event')
-        return sweepSpendableOutputs(keysManager, destinationScript, ONCHAIN_CONFIG.esploraUrl)
+        return sweepSpendableOutputs(
+          keysManager,
+          destinationScript,
+          ONCHAIN_CONFIG.esploraUrl,
+          LDK_CONFIG.esploraFallbackUrl
+        )
       })
       .then((result) => {
         if (result && result.swept > 0) {
@@ -580,6 +592,14 @@ function parseFirstSocketAddress(
       const bytes = addr.addr
       const host = `${bytes[0]}.${bytes[1]}.${bytes[2]}.${bytes[3]}`
       return { host, port: addr.port }
+    }
+    if (addr instanceof SocketAddress_TcpIpV6) {
+      const b = addr.addr
+      const groups: string[] = []
+      for (let i = 0; i < 16; i += 2) {
+        groups.push(((b[i]! << 8) | b[i + 1]!).toString(16))
+      }
+      return { host: groups.join(':'), port: addr.port }
     }
     if (addr instanceof SocketAddress_Hostname) {
       return { host: addr.hostname.to_str(), port: addr.port }

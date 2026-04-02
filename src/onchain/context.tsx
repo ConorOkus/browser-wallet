@@ -290,14 +290,13 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       const wallet = walletRef.current
       if (!wallet) throw new Error('Wallet not ready')
 
-      // Check anchor reserve: reject if send would leave less than reserve
+      // Check anchor reserve: reject if send + fee would leave less than reserve
       const reserve = getAnchorReserve()
       if (reserve > 0n) {
         const balance = wallet.balance
         const available = balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
-        // Rough check: amount + reserve > available (fee not yet known, but this
-        // catches obvious cases; BDK will throw InsufficientFunds for the rest)
-        if (amountSats + reserve > available) {
+        const { fee } = await estimateFee(address, amountSats)
+        if (amountSats + fee + reserve > available) {
           throw new Error(
             `Insufficient funds after reserving ${ANCHOR_RESERVE_SATS.toString()} sats for Lightning channel safety`
           )
@@ -316,7 +315,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
         feeRateSatVb
       )
     },
-    [buildSignBroadcast, getAnchorReserve]
+    [buildSignBroadcast, getAnchorReserve, estimateFee]
   )
 
   const sendMax = useCallback(
@@ -341,7 +340,10 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
         )
       }
 
-      // Has channels — estimate max sendable then send as fixed amount to preserve reserve
+      // Has channels — estimate max sendable then send as fixed amount to preserve reserve.
+      // Note: the final tx fee may differ slightly from the drain estimate because the
+      // fixed-amount tx includes a change output (for the reserve). This is conservative —
+      // the user sends slightly less than the theoretical max.
       const { amount } = await estimateMaxSendable(addr.toString())
       if (amount <= 0n) {
         throw new Error(
