@@ -46,11 +46,7 @@ function refreshFeeCache(): void {
     .then((estimates) => {
       const rates: Record<string, number> = {}
       for (const [blocks, feePerVbyte] of Object.entries(estimates)) {
-        if (
-          typeof feePerVbyte === 'number' &&
-          Number.isFinite(feePerVbyte) &&
-          feePerVbyte > 0
-        ) {
+        if (typeof feePerVbyte === 'number' && Number.isFinite(feePerVbyte) && feePerVbyte > 0) {
           rates[blocks] = feePerVbyte
         }
       }

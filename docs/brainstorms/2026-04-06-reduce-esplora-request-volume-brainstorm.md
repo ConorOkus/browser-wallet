@@ -30,26 +30,26 @@ Reduce esplora request volume by tuning sync intervals and fixing the fee estima
 
 ## Request Budget (estimated after changes)
 
-| Source | Before | After |
-|---|---|---|
-| LDK chain sync (base) | ~10-12/min | ~5-6/min |
-| LDK chain sync (watched items) | ~6-12/min | ~3-6/min |
-| BDK onchain sync | ~4-8/min | ~2-3/min |
-| Fee estimator | ~1-5/min | ~1/min |
-| Ad-hoc fee fetches | ~1-3/min | 0 (consolidated) |
-| **Total** | **~22-40/min** | **~11-16/min** |
+| Source                         | Before         | After            |
+| ------------------------------ | -------------- | ---------------- |
+| LDK chain sync (base)          | ~10-12/min     | ~5-6/min         |
+| LDK chain sync (watched items) | ~6-12/min      | ~3-6/min         |
+| BDK onchain sync               | ~4-8/min       | ~2-3/min         |
+| Fee estimator                  | ~1-5/min       | ~1/min           |
+| Ad-hoc fee fetches             | ~1-3/min       | 0 (consolidated) |
+| **Total**                      | **~22-40/min** | **~11-16/min**   |
 
 ## Files to Change
 
-| File | Change |
-|---|---|
-| `src/ldk/config.ts:27` | `chainPollIntervalMs: 30_000` → `60_000` |
-| `src/onchain/config.ts:20` | `syncIntervalMs: 80_000` → `180_000` |
-| `src/ldk/traits/fee-estimator.ts` | Add in-flight dedup guard to `refreshCache()` |
+| File                              | Change                                                   |
+| --------------------------------- | -------------------------------------------------------- |
+| `src/ldk/config.ts:27`            | `chainPollIntervalMs: 30_000` → `60_000`                 |
+| `src/onchain/config.ts:20`        | `syncIntervalMs: 80_000` → `180_000`                     |
+| `src/ldk/traits/fee-estimator.ts` | Add in-flight dedup guard to `refreshCache()`            |
 | `src/ldk/traits/fee-estimator.ts` | Export shared `getFeeEstimates()` for external consumers |
-| `src/pages/OpenChannel.tsx:69` | Use shared fee cache instead of direct fetch |
-| `src/ldk/sweep.ts:23-25` | Use shared fee cache instead of direct fetch |
-| `src/onchain/context.tsx:42` | Use shared fee cache instead of BDK's separate fetch |
+| `src/pages/OpenChannel.tsx:69`    | Use shared fee cache instead of direct fetch             |
+| `src/ldk/sweep.ts:23-25`          | Use shared fee cache instead of direct fetch             |
+| `src/onchain/context.tsx:42`      | Use shared fee cache instead of BDK's separate fetch     |
 
 ## Out of Scope
 

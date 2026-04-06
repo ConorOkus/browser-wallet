@@ -1,5 +1,5 @@
 ---
-title: "fix: Reduce esplora API request volume"
+title: 'fix: Reduce esplora API request volume'
 type: fix
 status: completed
 date: 2026-04-06
@@ -27,12 +27,14 @@ Increase sync intervals, fix the fee estimator dedup bug, and consolidate all fe
 ### Step 1: Increase Sync Intervals
 
 **Files:**
+
 - `src/ldk/config.ts:26,41` — `chainPollIntervalMs: 30_000` → `60_000` (both signet and mainnet)
 - `src/onchain/config.ts:20,29` — `syncIntervalMs: 80_000` → `180_000` (both signet and mainnet)
 
 **Rationale for both networks:** Even on mainnet with ~10-minute blocks, polling every 30s is aggressive. 60s chain sync still detects new blocks within one interval. 180s onchain sync is acceptable because `syncNow()` provides immediate sync after user-initiated sends.
 
 **Side effects to address:**
+
 - **RGS cadence doubles** from ~30min to ~60min because `rgsSyncIntervalTicks: 60` is measured in chain-sync ticks. Fix: reduce `rgsSyncIntervalTicks` from `60` to `30` to maintain ~30-minute RGS sync cadence on both networks.
   - `src/ldk/config.ts:30` (signet) and `src/ldk/config.ts:45` (mainnet)
 - **NetworkGraph/Scorer persistence cadence doubles** from ~5min to ~10min (every 10 ticks). This is acceptable — routing scores rebuild quickly and 10-minute persistence is fine. Update the comment at `src/ldk/sync/chain-sync.ts:236` to reflect "~10 min at 60s interval".
@@ -42,6 +44,7 @@ Increase sync intervals, fix the fee estimator dedup bug, and consolidate all fe
 **File:** `src/ldk/traits/fee-estimator.ts`
 
 Add a `pendingFetch: Promise<void> | null` variable to the closure scope. When `refreshCache()` is called:
+
 1. If `pendingFetch` is not null, return early (fetch already in-flight).
 2. Otherwise, set `pendingFetch` to the fetch promise.
 3. In the `.finally()` handler, clear `pendingFetch` back to null.
@@ -55,6 +58,7 @@ This prevents duplicate parallel fetches while preserving the fire-and-forget be
 This module lives outside both `ldk/` and `onchain/` to avoid cross-layer dependencies (identified in SpecFlow analysis). Prior learning from `docs/solutions/integration-issues/bdk-wasm-onchain-send-patterns.md` also recommends extracting fee estimation into a reusable helper.
 
 **Design:**
+
 - Module-scoped singleton cache: `{ rates: Record<string, number>, fetchedAt: number }` where rates map block-target strings to **sat/vB** (raw esplora format).
 - `CACHE_TTL_MS = 60_000` (matches current fee estimator TTL).
 - In-flight dedup via stored `Promise` reference (same pattern as Step 2).
@@ -68,22 +72,26 @@ This module lives outside both `ldk/` and `onchain/` to avoid cross-layer depend
 ### Step 4: Rewire Fee Consumers
 
 **`src/ldk/traits/fee-estimator.ts`:**
+
 - Remove the internal cache and `refreshCache()` function.
 - Import `getCachedFeeRate` from `src/shared/fee-cache.ts`.
 - `getCachedFeeRate()` returns sat/vB; the trait converts to sat/KW (multiply by 250) and applies the minimum of 253 sat/KW.
 - Remove the `createFeeEstimator` closure pattern — the shared module handles caching.
 
 **`src/pages/OpenChannel.tsx:68-80`:**
+
 - Replace standalone `fetch()` with `import { getFeeRate } from '@/shared/fee-cache'`.
 - Call `const satPerVb = await getFeeRate(6)` in the useEffect.
 - Remove inline fetch and error handling — `getFeeRate` handles defaults.
 
 **`src/ldk/sweep.ts:23-46`:**
+
 - Replace `fetchFeeRate()` with `import { getFeeRate } from '@/shared/fee-cache'`.
 - Call `const satPerVb = await getFeeRate(FEE_TARGET_BLOCKS)` at line 116 instead of `fetchFeeRate(esploraUrl)`.
 - Remove the standalone `fetchFeeRate` function.
 
 **`src/onchain/context.tsx:40-51`:**
+
 - Replace `esploraClient.get_fee_estimates()` with `import { getFeeRate } from '@/shared/fee-cache'`.
 - Call `const satPerVb = await getFeeRate(FEE_TARGET_BLOCKS)`.
 - This eliminates BDK's separate HTTP request for fee estimates. Note: BDK's `get_fee_estimates()` has no side effects beyond the HTTP call — it's a pure read from esplora, safe to replace.
