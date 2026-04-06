@@ -30,10 +30,9 @@ const NETWORK_CONFIGS: Record<NetworkId, LdkConfig> = {
     rgsUrl: 'https://rgs.mutinynet.com/snapshot',
     rgsSyncIntervalTicks: 30,
     vssUrl: '/api/vss-proxy',
-    lspNodeId: '0371d6fd7d75de2d0372d03ea00e8bacdacb50c27d0eaea0a76a0622eff1f5ef2b',
-    lspHost: '44.219.111.31',
-    lspPort: 39735,
-    lspToken: 'JZWN9YLW',
+    lspNodeId: '0275eb44504d53b2a083852e3bffcc4e178195b9546c162590d8c282f3ed3243fc',
+    lspHost: '192.243.215.98',
+    lspPort: 25000,
     genesisBlockHash: '00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6',
   },
   mainnet: {
