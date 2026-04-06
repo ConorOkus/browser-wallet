@@ -27,7 +27,7 @@ let lastFailedAt = 0
  */
 export function initFeeCache(esploraUrl: string): void {
   esploraBaseUrl = esploraUrl
-  refreshFeeCache()
+  void refreshFeeCache()
 }
 
 /**
@@ -86,7 +86,7 @@ function defaultRate(target: number): number {
  * Used by the LDK FeeEstimator trait (synchronous callback).
  */
 export function getCachedFeeRate(target: number): number {
-  if (isCacheStale()) refreshFeeCache()
+  if (isCacheStale()) void refreshFeeCache()
   if (!cache) return defaultRate(target)
   return cache.rates[String(target)] ?? defaultRate(target)
 }
