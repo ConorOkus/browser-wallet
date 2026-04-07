@@ -24,10 +24,10 @@ class Semaphore {
     this.count = max
   }
 
-  async acquire(): Promise<void> {
+  acquire(): Promise<void> {
     if (this.count > 0) {
       this.count--
-      return
+      return Promise.resolve()
     }
     return new Promise((resolve) => this.queue.push(resolve))
   }
@@ -42,7 +42,7 @@ class Semaphore {
 /** Simple LRU cache using Map insertion order. */
 class LruCache<V> {
   private map = new Map<string, V>()
-  private maxEntries: number
+  private readonly maxEntries: number
 
   constructor(maxEntries: number) {
     this.maxEntries = maxEntries
@@ -69,16 +69,13 @@ class LruCache<V> {
     this.map.set(key, value)
   }
 
-  get size(): number {
-    return this.map.size
-  }
 }
 
 export class EsploraClient {
   readonly baseUrl: string
   private externalSignal: AbortSignal | undefined
   private readonly semaphore = new Semaphore(MAX_CONCURRENT)
-  private readonly inflight = new Map<string, Promise<Response>>()
+  private readonly inflight = new Map<string, Promise<{ status: number; body: string }>>()
   private readonly headerCache = new LruCache<Uint8Array>(LRU_MAX_ENTRIES)
   private readonly txHexCache = new LruCache<Uint8Array>(LRU_MAX_ENTRIES)
   private readonly merkleProofCache = new LruCache<MerkleProof>(LRU_MAX_ENTRIES)
@@ -107,8 +104,8 @@ export class EsploraClient {
     const existing = this.inflight.get(url)
     if (existing) return existing
 
-    const signal = this.getSignal()
     const promise = this.semaphore.acquire().then(async () => {
+      const signal = this.getSignal()
       try {
         const res = await fetch(url, { signal })
         const body = await res.text()

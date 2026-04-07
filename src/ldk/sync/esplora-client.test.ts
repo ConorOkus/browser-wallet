@@ -3,8 +3,6 @@ import { EsploraClient } from './esplora-client'
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/require-await */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
-
 const BASE_URL = 'https://mutinynet.com/api'
 const FAKE_HASH = 'aa'.repeat(32)
 const FAKE_TXID = 'bb'.repeat(32)
