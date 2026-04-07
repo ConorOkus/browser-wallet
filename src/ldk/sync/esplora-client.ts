@@ -148,7 +148,7 @@ export class EsploraClient {
   async getBlockHeader(hash: string): Promise<Uint8Array> {
     assertHex(hash, 'blockHash', 64)
     const cached = this.headerCache.get(hash)
-    if (cached) return cached
+    if (cached) return cached.slice()
 
     const hex = await this.fetchText(
       `${this.baseUrl}/block/${hash}/header`,
@@ -189,7 +189,7 @@ export class EsploraClient {
   async getTxHex(txid: string): Promise<Uint8Array> {
     assertHex(txid, 'txid', 64)
     const cached = this.txHexCache.get(txid)
-    if (cached) return cached
+    if (cached) return cached.slice()
 
     const hex = await this.fetchText(`${this.baseUrl}/tx/${txid}/hex`, `/tx/${txid}/hex`)
     assertHex(hex, 'txHex')
@@ -198,9 +198,9 @@ export class EsploraClient {
     return bytes
   }
 
-  async getTxMerkleProof(txid: string, blockHash?: string): Promise<MerkleProof> {
+  async getTxMerkleProof(txid: string, blockHash: string): Promise<MerkleProof> {
     assertHex(txid, 'txid', 64)
-    const cacheKey = blockHash ? `${txid}:${blockHash}` : txid
+    const cacheKey = `${txid}:${blockHash}`
     const cached = this.merkleProofCache.get(cacheKey)
     if (cached) return cached
 
