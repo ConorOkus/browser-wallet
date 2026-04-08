@@ -770,33 +770,42 @@ export function LdkProvider({
             }
           }
 
-          // Auto-connect to LSP so JIT channels are ready when needed
-          if (LDK_CONFIG.lspNodeId && LDK_CONFIG.lspHost) {
-            void doConnectToPeer(
-              node.peerManager,
-              LDK_CONFIG.lspNodeId,
-              LDK_CONFIG.lspHost,
-              LDK_CONFIG.lspPort,
-              () => drainEventsRef.current?.()
-            )
-              .then((conn) => {
-                activeConnections.current.set(LDK_CONFIG.lspNodeId, conn)
-                console.log('[ldk] Connected to LSP')
-              })
-              .catch((err: unknown) => {
-                captureError(
-                  'warning',
-                  'LDK',
-                  'LSP auto-connect failed (will retry on receive)',
-                  String(err)
-                )
-              })
-          }
-
           // Auto-reconnect to known peers, then mark peersReconnected so
           // the Home screen knows the lightning balance is now accurate.
+          // The LSP is connected here too (either as a known peer if it has
+          // channels, or via auto-connect if it doesn't). Connecting in a
+          // single path avoids racing two WebSockets to the same peer, which
+          // causes LDK to tear down the duplicate and disconnect.
           getKnownPeers()
             .then(async (peers) => {
+              // Auto-connect to LSP so JIT channels are ready when needed.
+              // Only do this if the LSP is NOT already a known peer — known
+              // peers are reconnected in the loop below, which also polls for
+              // channel usability.
+              const lspIsKnownPeer =
+                LDK_CONFIG.lspNodeId && peers.has(LDK_CONFIG.lspNodeId)
+              if (LDK_CONFIG.lspNodeId && LDK_CONFIG.lspHost && !lspIsKnownPeer) {
+                void doConnectToPeer(
+                  node.peerManager,
+                  LDK_CONFIG.lspNodeId,
+                  LDK_CONFIG.lspHost,
+                  LDK_CONFIG.lspPort,
+                  () => drainEventsRef.current?.()
+                )
+                  .then((conn) => {
+                    activeConnections.current.set(LDK_CONFIG.lspNodeId, conn)
+                    console.log('[ldk] Connected to LSP')
+                  })
+                  .catch((err: unknown) => {
+                    captureError(
+                      'warning',
+                      'LDK',
+                      'LSP auto-connect failed (will retry on receive)',
+                      String(err)
+                    )
+                  })
+              }
+
               if (peers.size === 0) {
                 setState((prev) =>
                   prev.status === 'ready' ? { ...prev, peersReconnected: true } : prev
