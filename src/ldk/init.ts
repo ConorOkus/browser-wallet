@@ -156,9 +156,14 @@ function initWasm(): Promise<void> {
   return wasmInitPromise
 }
 
+// BroadcastChannel used to signal the old tab to shut down when a new tab
+// steals the wallet lock. The old tab listens and tears down its LDK node.
+export const WALLET_LOCK_CHANNEL = 'zinqq-wallet-lock'
+
 // Multi-tab lock: prevent two tabs from running independent ChannelManagers.
 // Uses `steal: true` so the most recently opened tab always wins. This avoids
 // stale locks from crashed tabs, bfcache, or service workers blocking restore.
+// Before stealing, broadcasts a shutdown signal so the old tab can tear down.
 async function acquireWalletLock(): Promise<void> {
   if (!navigator.locks) {
     throw new Error(
@@ -166,6 +171,11 @@ async function acquireWalletLock(): Promise<void> {
         'A modern browser with Web Locks support is required to prevent multi-tab fund loss.'
     )
   }
+
+  // Signal any existing tab to shut down before we steal the lock
+  const bc = new BroadcastChannel(WALLET_LOCK_CHANNEL)
+  bc.postMessage({ type: 'wallet-takeover' })
+  bc.close()
 
   return new Promise<void>((resolve) => {
     void navigator.locks.request('zinqq-lock', { steal: true }, () => {
