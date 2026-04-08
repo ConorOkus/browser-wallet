@@ -24,7 +24,7 @@ const ONCHAIN_CONFIGS: Record<NetworkId, OnchainConfig> = {
   },
   mainnet: {
     network: 'bitcoin',
-    esploraUrl: 'https://mempool.space/api',
+    esploraUrl: '/api/esplora',
     explorerUrl: 'https://mempool.space',
     syncIntervalMs: 180_000,
     fullScanGapLimit: 20,
