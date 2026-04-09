@@ -493,8 +493,34 @@ export function Send() {
       return
     }
 
+    // BOLT 11 / BOLT 12: go directly to review — don't re-parse the raw input.
+    // When the original input was a BIP 353 address, rawInput is the user@domain
+    // string, not the resolved offer/invoice. Re-parsing would re-trigger async
+    // resolution and loop back to the amount screen.
+    if (sendStep.parsedInput.type === 'bolt11' || sendStep.parsedInput.type === 'bolt12') {
+      const effectiveMsat = amountSats * 1000n
+      if (effectiveMsat > lnCapacityMsat) {
+        setInputError('Amount exceeds Lightning channel capacity')
+        return
+      }
+      amountStepDataRef.current = {
+        parsedInput: sendStep.parsedInput,
+        rawInput: sendStep.rawInput,
+        minSat: sendStep.minSat,
+        maxSat: sendStep.maxSat,
+      }
+      setSendStep({
+        step: 'ln-review',
+        parsed: sendStep.parsedInput,
+        amountMsat: effectiveMsat,
+        fromStep: 'amount',
+        label: sendStep.rawInput,
+      })
+      return
+    }
+
     void processRecipientInput(sendStep.rawInput, 'amount')
-  }, [amountSats, sendStep, processRecipientInput, fetchAndRouteInvoice])
+  }, [amountSats, sendStep, processRecipientInput, fetchAndRouteInvoice, lnCapacityMsat])
 
   // QR scanner integration: consume scannedInput from location.state
   useEffect(() => {
