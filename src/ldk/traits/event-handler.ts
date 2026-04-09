@@ -49,7 +49,13 @@ import {
   type SocketAddress,
   type Event,
 } from 'lightningdevkit'
-import { Wallet, Recipient, ScriptBuf, Amount, SignOptions } from '@bitcoindevkit/bdk-wallet-web'
+import {
+  type Wallet,
+  Recipient,
+  ScriptBuf,
+  Amount,
+  SignOptions,
+} from '@bitcoindevkit/bdk-wallet-web'
 import { idbPut, idbGet, idbDelete } from '../../storage/idb'
 import { persistPayment, updatePaymentStatus } from '../storage/payment-history'
 import { bytesToHex } from '../utils'
