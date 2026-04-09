@@ -1,5 +1,5 @@
 ---
-title: "feat: Payment detail screen with BIP 177 cleanup"
+title: 'feat: Payment detail screen with BIP 177 cleanup'
 type: feat
 status: completed
 date: 2026-04-08
@@ -43,10 +43,12 @@ Amount-Hero layout with `ScreenHeader` (back to `/activity`):
 - Activity list items become `<Link>` elements with `to={`/activity/${tx.id}`}` and `state={{ tx }}`
 
 **States:**
+
 - **Loading:** Show spinner while `useTransactionHistory` is loading (only hit on direct URL access)
 - **Not found:** Show "Transaction not found" when loading completes but no match — handles bookmarked URLs for transactions that may have been pruned or never existed
 
 **Edge cases:**
+
 - `timestamp === 0` (unconfirmed on-chain with no `firstSeen`): Show "Pending" for date/time rows
 - Zero-amount transactions (e.g., channel sweeps): Display `₿0` — `formatBtc` handles this already
 - Failed payments: Not displayed — `useTransactionHistory` filters them at line 57, which is correct behavior for now (see brainstorm: no actions, info-only)
@@ -54,6 +56,7 @@ Amount-Hero layout with `ScreenHeader` (back to `/activity`):
 ### Part 2: Make Activity List Items Clickable
 
 Update `src/pages/Activity.tsx`:
+
 - Replace `<div key={tx.id}>` row wrapper with `<Link to={`/activity/${tx.id}`} state={{ tx }}>` from react-router
 - Style the link to preserve current appearance (no underline, same colors)
 - Keyboard accessible by default via `<Link>` (no extra ARIA work needed)
@@ -62,15 +65,15 @@ Update `src/pages/Activity.tsx`:
 
 Replace hardcoded "sats" in user-facing error strings with `formatBtc()`:
 
-| File | Line(s) | Current | New |
-|------|---------|---------|-----|
-| `src/pages/OpenChannel.tsx` | 88 | `Minimum channel size is 20,000 sats` | `Minimum channel size is ${formatBtc(MIN_CHANNEL_SATS)}` |
-| `src/pages/OpenChannel.tsx` | 93 | `Maximum channel size is 16,777,215 sats` | `Maximum channel size is ${formatBtc(MAX_CHANNEL_SATS)}` |
-| `src/pages/Send.tsx` | 350 | `Amount must be at least 294 sats (dust limit)` | `Amount must be at least ${formatBtc(MIN_DUST_SATS)} (dust limit)` |
-| `src/onchain/context.tsx` | 62 | `Available: ... sats, needed: ... sats` | Use `formatBtc()` for both values |
-| `src/onchain/context.tsx` | 71 | `below the minimum (294 sats)` | `below the minimum (${formatBtc(294n)})` |
-| `src/onchain/context.tsx` | 197 | `Fee too high: ... sats exceeds safety limit` | Use `formatBtc()` |
-| `src/onchain/context.tsx` | 296, 345 | `reserving ... sats for Lightning channel safety` | Use `formatBtc(ANCHOR_RESERVE_SATS)` |
+| File                        | Line(s)  | Current                                           | New                                                                |
+| --------------------------- | -------- | ------------------------------------------------- | ------------------------------------------------------------------ |
+| `src/pages/OpenChannel.tsx` | 88       | `Minimum channel size is 20,000 sats`             | `Minimum channel size is ${formatBtc(MIN_CHANNEL_SATS)}`           |
+| `src/pages/OpenChannel.tsx` | 93       | `Maximum channel size is 16,777,215 sats`         | `Maximum channel size is ${formatBtc(MAX_CHANNEL_SATS)}`           |
+| `src/pages/Send.tsx`        | 350      | `Amount must be at least 294 sats (dust limit)`   | `Amount must be at least ${formatBtc(MIN_DUST_SATS)} (dust limit)` |
+| `src/onchain/context.tsx`   | 62       | `Available: ... sats, needed: ... sats`           | Use `formatBtc()` for both values                                  |
+| `src/onchain/context.tsx`   | 71       | `below the minimum (294 sats)`                    | `below the minimum (${formatBtc(294n)})`                           |
+| `src/onchain/context.tsx`   | 197      | `Fee too high: ... sats exceeds safety limit`     | Use `formatBtc()`                                                  |
+| `src/onchain/context.tsx`   | 296, 345 | `reserving ... sats for Lightning channel safety` | Use `formatBtc(ANCHOR_RESERVE_SATS)`                               |
 
 Console logs and internal variable names stay as-is (not user-facing). Test assertions in `Send.test.tsx:321` will need updating to match the new error text.
 
@@ -96,9 +99,11 @@ Console logs and internal variable names stay as-is (not user-facing). Test asse
 ## Files to Create/Modify
 
 **Create:**
+
 - `src/pages/TransactionDetail.tsx` — new detail screen component
 
 **Modify:**
+
 - `src/routes/router.tsx` — add `activity/:txId` route
 - `src/pages/Activity.tsx` — make list items `<Link>` elements
 - `src/pages/OpenChannel.tsx` — BIP 177 error messages (lines 88, 93)
