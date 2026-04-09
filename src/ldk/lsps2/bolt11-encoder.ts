@@ -157,6 +157,9 @@ function buildDataPart(params: Bolt11InvoiceParams, timestamp: number): number[]
 }
 
 function addTaggedField(words: number[], tag: number, data: number[]): void {
+  if (data.length > 1023) {
+    throw new Error(`Tagged field data exceeds 1023-word limit (got ${data.length})`)
+  }
   words.push(tag)
   // Data length as 2 x 5-bit words (10 bits, max 1023 words)
   const len = data.length
