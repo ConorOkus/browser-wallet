@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: '180'
 tags: [recovery, bdk, ldk, fund-safety]

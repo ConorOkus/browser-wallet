@@ -141,6 +141,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
   const generateAddress = useCallback((): string => {
     if (!walletRef.current) throw new Error('BDK wallet not initialized')
     const info = walletRef.current.next_unused_address('external')
+    persistChangeset(walletRef.current)
     return info.address.toString()
   }, [])
 
