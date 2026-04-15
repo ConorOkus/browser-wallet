@@ -4,7 +4,9 @@ import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
 import { useUnifiedBalance } from '../hooks/use-unified-balance'
 import { usePwaInstall } from '../hooks/use-pwa-install'
+import { useRecovery } from '../ldk/recovery/use-recovery'
 import { BalanceDisplay } from '../components/BalanceDisplay'
+import { RecoveryBanner } from '../components/RecoveryBanner'
 import { ArrowUpRight, ArrowDownLeft, RefreshIcon, HomeIcon } from '../components/icons'
 
 export function Home() {
@@ -13,6 +15,8 @@ export function Home() {
   const ldk = useLdk()
   const { total, pending, isLoading } = useUnifiedBalance()
   const { canInstall, isIos, isStandalone, promptInstall } = usePwaInstall()
+  const vssClient = ldk.status === 'ready' ? ldk.vssClient : null
+  const { recovery, dismiss: dismissRecovery } = useRecovery(vssClient)
   const [showIosHint, setShowIosHint] = useState(false)
 
   const showInstallButton = !isStandalone && (canInstall || isIos)
@@ -69,6 +73,12 @@ export function Home() {
         </div>
       )}
       <BalanceDisplay balance={total} pending={pending} loading={isLoading} />
+
+      {recovery && (
+        <div className="mb-3">
+          <RecoveryBanner recovery={recovery} onDismiss={() => void dismissRecovery()} />
+        </div>
+      )}
 
       <div className="flex gap-3 pb-[calc(var(--spacing-tab-bar)+0.75rem+env(safe-area-inset-bottom,0px))]">
         <button

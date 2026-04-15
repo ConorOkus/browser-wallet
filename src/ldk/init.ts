@@ -52,6 +52,7 @@ import {
   type ChannelClosedCallback,
   type SyncNeededCallback,
   type ConnectionNeededCallback,
+  type RecoveryNeededCallback,
 } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
 import { hmac } from '@noble/hashes/hmac.js'
@@ -108,6 +109,7 @@ export interface InitResult {
   setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => void
   setSyncNeededCallback: (cb: SyncNeededCallback | undefined) => void
   setConnectionNeededCallback: (cb: ConnectionNeededCallback | undefined) => void
+  setRecoveryNeededCallback: (cb: RecoveryNeededCallback | undefined) => void
   cmPersistCtx: CmPersistContext
 }
 
@@ -710,6 +712,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   let channelClosedCallback: ChannelClosedCallback | undefined
   let syncNeededCallback: SyncNeededCallback | undefined
   let connectionNeededCallback: ConnectionNeededCallback | undefined
+  let recoveryNeededCallback: RecoveryNeededCallback | undefined
   const { handler: eventHandler, cleanup: cleanupEventHandler } = createEventHandler(
     channelManager,
     keysManager,
@@ -719,7 +722,8 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     (...args) => channelClosedCallback?.(...args),
     () => syncNeededCallback?.(),
     (...args) => connectionNeededCallback?.(...args),
-    bumpTxHandler
+    bumpTxHandler,
+    (...args) => recoveryNeededCallback?.(...args)
   )
 
   // ChannelManager VSS version ref — seeded from recovery or migration, updated by persistChannelManager
@@ -826,6 +830,9 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     },
     setConnectionNeededCallback: (cb: ConnectionNeededCallback | undefined) => {
       connectionNeededCallback = cb
+    },
+    setRecoveryNeededCallback: (cb: RecoveryNeededCallback | undefined) => {
+      recoveryNeededCallback = cb
     },
     cmPersistCtx,
   }

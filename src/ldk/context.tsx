@@ -38,6 +38,16 @@ import { bytesToHex, hexToBytes } from './utils'
 import { msatToSatFloor } from '../utils/msat'
 import { captureError } from '../storage/error-log'
 import { selectCheapestParams, calculateOpeningFee, type JitInvoiceResult } from './lsps2/types'
+import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
+import {
+  readRecoveryState,
+  writeRecoveryState,
+  clearRecoveryState,
+  seedRecoveryVssVersion,
+} from './recovery/recovery-state'
+import { sweepSpendableOutputs } from './sweep'
+import { revealNextAddress } from '../onchain/address-utils'
+import { ONCHAIN_CONFIG } from '../onchain/config'
 
 function getOutboundCapacitySats(cm: import('lightningdevkit').ChannelManager): bigint {
   const msat = cm
@@ -509,6 +519,7 @@ export function LdkProvider({
           setChannelClosedCallback,
           setSyncNeededCallback,
           setConnectionNeededCallback,
+          setRecoveryNeededCallback,
           cmPersistCtx,
         }) => {
           if (cancelled) return
@@ -520,6 +531,14 @@ export function LdkProvider({
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { nodeSecretKey: _secret, ...safeNode } = node
             ;(window as unknown as Record<string, unknown>).__ldkNode = safeNode
+          }
+
+          // Expose recovery functions for agent/programmatic access.
+          // Available in all environments so agents can check recovery status,
+          // read the deposit address, and dismiss the success banner.
+          ;(window as unknown as Record<string, unknown>).__recovery = {
+            getState: readRecoveryState,
+            dismiss: () => clearRecoveryState(vssClient),
           }
 
           // Zero secret keys on page unload to limit memory exposure
@@ -571,6 +590,18 @@ export function LdkProvider({
               )
             })
           })
+
+          // Wire recovery callback: when CPFP fails, enter recovery state
+          setRecoveryNeededCallback((info) => {
+            const address = bdkWallet.next_unused_address('external')
+            const addressStr = address.address.toString()
+            void enterRecovery(info, addressStr, vssClient).catch((err: unknown) => {
+              captureError('error', 'LDK', 'Failed to enter recovery state', String(err))
+            })
+          })
+
+          // Seed VSS version for recovery state on startup
+          void seedRecoveryVssVersion(vssClient).catch(() => {})
 
           cleanupEventHandlerFn = cleanupEventHandler
 
@@ -683,6 +714,46 @@ export function LdkProvider({
             })
           }
 
+          // Auto-recovery: periodically check if we can sweep stuck outputs.
+          // Runs every ~60s (6 ticks) to avoid excessive IDB reads.
+          let recoveryTickCount = 0
+          let recoveryInProgress = false
+          const maybeAutoRecover = () => {
+            if (recoveryInProgress) return
+            recoveryInProgress = true
+            void (async () => {
+              try {
+                const state = await readRecoveryState()
+                if (!state || state.status === 'sweep_confirmed') return
+
+                // Attempt sweep with current UTXOs
+                const destScript = revealNextAddress(bdkWallet, 'Recovery')
+                const result = await sweepSpendableOutputs(
+                  node.keysManager,
+                  destScript,
+                  ONCHAIN_CONFIG.esploraUrl,
+                  LDK_CONFIG.esploraFallbackUrl
+                )
+
+                if (result.swept > 0) {
+                  // Sweep succeeded — transition to sweep_confirmed
+                  const updated = {
+                    ...state,
+                    status: 'sweep_confirmed' as const,
+                    updatedAt: Date.now(),
+                  }
+                  await writeRecoveryState(updated, vssClient)
+                  notifyRecoveryStateChanged()
+                  console.log('[Recovery] Auto-sweep succeeded, txid:', result.txid)
+                }
+              } catch (err: unknown) {
+                captureError('warning', 'Recovery', 'Auto-recovery check failed', String(err))
+              } finally {
+                recoveryInProgress = false
+              }
+            })()
+          }
+
           // PeerManager timer + LDK event processing every ~10s
           peerTimerId = setInterval(() => {
             node.peerManager.timer_tick_occurred()
@@ -692,6 +763,12 @@ export function LdkProvider({
             peerTickCount += 1
             if (peerTickCount % 3 === 0) {
               maybeReconnectPeers()
+            }
+
+            // Attempt auto-recovery every ~60s
+            recoveryTickCount += 1
+            if (recoveryTickCount % 6 === 0) {
+              maybeAutoRecover()
             }
 
             drainEventsAndRefresh()
@@ -736,6 +813,7 @@ export function LdkProvider({
             paymentHistory: initialPaymentHistory,
             bolt12Offer: null,
             vssStatus: 'ok',
+            vssClient: vssClient ?? null,
             shutdown,
           })
 
