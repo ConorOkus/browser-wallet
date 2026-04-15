@@ -16,10 +16,13 @@ const FEE_TARGET_BLOCKS = 6
 const MIN_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 2 : 1
 const MAX_FEE_RATE_SAT_VB = 500
 
+export type SweepFailureReason = 'no_utxos' | 'dust_or_timelocked' | 'fee_estimation' | 'broadcast'
+
 export interface SweepResult {
   swept: number
   skipped: number
   txid: string | null
+  failureReason?: SweepFailureReason
 }
 
 let sweepInProgress = false
@@ -84,17 +87,23 @@ export async function sweepSpendableOutputs(
     }
 
     // Fetch fee rate and convert from sat/vB to sat/kw (×250)
-    const rawRate = await getFeeRate(FEE_TARGET_BLOCKS)
-    const ceiledRate = Math.ceil(rawRate)
-    const feeRateSatVb = Math.max(Math.min(ceiledRate, MAX_FEE_RATE_SAT_VB), MIN_FEE_RATE_SAT_VB)
-    if (feeRateSatVb < ceiledRate) {
-      captureError(
-        'warning',
-        'Sweep',
-        `Fee rate capped from ${ceiledRate} to ${MAX_FEE_RATE_SAT_VB} sat/vB`
-      )
+    let feeRateSatPer1000Weight: number
+    try {
+      const rawRate = await getFeeRate(FEE_TARGET_BLOCKS)
+      const ceiledRate = Math.ceil(rawRate)
+      const feeRateSatVb = Math.max(Math.min(ceiledRate, MAX_FEE_RATE_SAT_VB), MIN_FEE_RATE_SAT_VB)
+      if (feeRateSatVb < ceiledRate) {
+        captureError(
+          'warning',
+          'Sweep',
+          `Fee rate capped from ${ceiledRate} to ${MAX_FEE_RATE_SAT_VB} sat/vB`
+        )
+      }
+      feeRateSatPer1000Weight = feeRateSatVb * 250
+    } catch (err: unknown) {
+      captureError('error', 'Sweep', 'Fee rate estimation failed', String(err))
+      return { swept: 0, skipped: skipped + allDescriptors.length, txid: null, failureReason: 'fee_estimation' }
     }
-    const feeRateSatPer1000Weight = feeRateSatVb * 250
 
     // Build + sign sweep tx via LDK's OutputSpender
     const outputSpender = keysManager.as_OutputSpender()
@@ -113,11 +122,17 @@ export async function sweepSpendableOutputs(
         'Sweep',
         `spend_spendable_outputs failed — outputs may be dust or timelocked, descriptors: ${allDescriptors.length}`
       )
-      return { swept: 0, skipped: skipped + allDescriptors.length, txid: null }
+      return { swept: 0, skipped: skipped + allDescriptors.length, txid: null, failureReason: 'dust_or_timelocked' }
     }
 
-    const txHex = bytesToHex(result.res)
-    const txid = await broadcastWithRetry(esploraUrl, txHex, esploraFallbackUrl)
+    let txid: string
+    try {
+      const txHex = bytesToHex(result.res)
+      txid = await broadcastWithRetry(esploraUrl, txHex, esploraFallbackUrl)
+    } catch (err: unknown) {
+      captureError('error', 'Sweep', 'Broadcast failed after signing', String(err))
+      return { swept: 0, skipped: skipped + allDescriptors.length, txid: null, failureReason: 'broadcast' }
+    }
 
     // Clean up IDB entries atomically after successful broadcast
     await idbDeleteBatch('ldk_spendable_outputs', idbKeys)
