@@ -81,7 +81,7 @@ function defaultRate(target: number): number {
 
 /**
  * Synchronous read — returns cached sat/vB for the given block target, or
- * the network-aware default if no cache exists. Triggers a background
+ * the default if no cache exists. Triggers a background
  * refresh when the cache is stale.
  *
  * Used by the LDK FeeEstimator trait (synchronous callback).
@@ -95,7 +95,7 @@ export function getCachedFeeRate(target: number): number {
 /**
  * Async read — returns sat/vB for the given block target. If the cache is
  * stale, awaits the in-flight fetch (or triggers one) before returning.
- * Falls back to network-aware defaults on failure.
+ * Falls back to defaults on failure.
  *
  * Used by UI components and async operations (sweep, send, open channel).
  */

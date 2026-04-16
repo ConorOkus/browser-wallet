@@ -81,8 +81,8 @@ vi.mock('lightningdevkit', () => {
         return new Result_OK(new MockHumanReadableName(user, domain))
       },
     },
-    Currency: { LDKCurrency_Signet: 'signet', LDKCurrency_Bitcoin: 'bitcoin' },
-    Network: { LDKNetwork_Signet: 4, LDKNetwork_Bitcoin: 0 },
+    Currency: { LDKCurrency_Bitcoin: 'bitcoin' },
+    Network: { LDKNetwork_Bitcoin: 0 },
     Option_u64Z_Some,
     Option_AmountZ_Some: class {},
     Amount_Bitcoin: class {},

@@ -12,7 +12,7 @@ import {
 } from 'lightningdevkit'
 import { LDK_CONFIG } from './config'
 
-const BECH32_RE = /^(bc1)[a-z0-9]{25,87}$/
+const BECH32_RE = /^bc1[a-z0-9]{25,87}$/
 const LEGACY_RE = /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/
 export interface LnurlPayMetadata {
   domain: string
@@ -67,7 +67,7 @@ export function classifyPaymentInput(raw: string): ParsedPaymentInput {
     return classifyPaymentInput(input.slice('lightning:'.length))
   }
 
-  // BOLT 11 invoice (mainnet: lnbc, signet: lntbs, testnet: lntb, regtest: lnbcrt)
+  // BOLT 11 invoice (broad match — non-mainnet prefixes are rejected by currency check in parseBolt11)
   if (/^ln(bc|tb|tbs|bcrt)/i.test(input)) {
     return parseBolt11(input)
   }
