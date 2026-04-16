@@ -1,6 +1,4 @@
-import { ACTIVE_NETWORK } from '../ldk/config'
-
-export const DB_NAME = `zinqq-ldk-${ACTIVE_NETWORK}`
+export const DB_NAME = 'zinqq-ldk-mainnet'
 const DB_VERSION = 12
 
 const STORES = [
@@ -45,7 +43,7 @@ export function openDb(): Promise<IDBDatabase> {
 
       // Migration from v2→v3: clear old random seed and LDK state.
       // The app now derives seeds from a BIP39 mnemonic, so old random
-      // seeds are incompatible. Acceptable for Signet-only stage.
+      // seeds are incompatible.
       if (oldVersion > 0 && oldVersion < 3) {
         const LDK_STORES_TO_CLEAR = [
           'ldk_seed',
