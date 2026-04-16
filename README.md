@@ -176,3 +176,22 @@ flowchart LR
 The Content-Security-Policy in `index.html` enumerates every external host the
 app is allowed to reach; it's the tightest inventory of network dependencies
 in the codebase.
+
+## Upcoming
+
+Features on the near-term roadmap. Not yet shipped — linked plan docs track
+status.
+
+- **BIP 353 human Bitcoin address (receive).** Zinqq already resolves BIP 353
+  addresses on the send side. The upcoming receive-side feature lets users
+  claim a human-readable address like `alice@zinqq.app` that resolves via a
+  DNSSEC-signed TXT record to their BOLT 12 offer, so they can share a
+  memorable name instead of a raw `lno1…` string. See
+  [`docs/plans/2026-03-28-001-feat-bip353-receive-dns-payment-address-plan.md`](docs/plans/2026-03-28-001-feat-bip353-receive-dns-payment-address-plan.md).
+- **Offline receive via LSPS5.** Today, receiving a Lightning payment requires
+  Zinqq to be online either to claim a just-in-time channel (LSPS2) or to
+  answer an HTLC. [LSPS5](https://github.com/BitcoinAndLightningLayerSpecs/lsp)
+  defines async receive: the LSP holds the HTLC on the user's behalf while the
+  wallet is offline and settles once it comes back. This closes the last gap
+  in the lightning-first philosophy — every invoice eventually settles over
+  Lightning, even if the wallet was closed when it was created.
