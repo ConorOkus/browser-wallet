@@ -10,18 +10,18 @@ origin: docs/brainstorms/2026-04-16-descriptive-readme-brainstorm.md
 
 ## Overview
 
-Create a `README.md` at the project root describing Zinq as a self-custodial, browser-based Bitcoin Lightning wallet PWA. The README targets developers and contributors reading the code (not end users, not casual browsers) and uses a reference/showcase posture — describe the thesis, features, and architecture without adding contribution boilerplate or exhaustive setup instructions.
+Create a `README.md` at the project root describing Zinqq as a self-custodial, browser-based Bitcoin Lightning wallet PWA. The README targets developers and contributors reading the code (not end users, not casual browsers) and uses a reference/showcase posture — describe the thesis, features, and architecture without adding contribution boilerplate or exhaustive setup instructions.
 
 Structure decided during brainstorming (see brainstorm: [docs/brainstorms/2026-04-16-descriptive-readme-brainstorm.md](../brainstorms/2026-04-16-descriptive-readme-brainstorm.md)):
 
 1. Title + tagline + prominent experimental-software warning
-2. **Why Zinq** — design philosophy and differentiators
+2. **Why Zinqq** — design philosophy and differentiators
 3. **What it does** — features, grouped by domain
 4. **How it works** — architecture tier overview with a Mermaid flowchart
 
 ## Problem Statement / Motivation
 
-No README exists at the project root today. New readers — whether engineers evaluating the codebase, Lightning-ecosystem folks curious about the approach, or future-self returning after a break — have no single document that explains what Zinq is, what it can do, or how it's put together. Everything currently lives either implicitly in the code or in scattered planning and solution docs under `docs/`.
+No README exists at the project root today. New readers — whether engineers evaluating the codebase, Lightning-ecosystem folks curious about the approach, or future-self returning after a break — have no single document that explains what Zinqq is, what it can do, or how it's put together. Everything currently lives either implicitly in the code or in scattered planning and solution docs under `docs/`.
 
 This plan produces the first README, scoped deliberately as a showcase writeup rather than an onboarding or marketing doc.
 
@@ -29,19 +29,19 @@ This plan produces the first README, scoped deliberately as a showcase writeup r
 
 Write one markdown file: `/Users/conor/Projects/zinq/README.md`. Target length ~180–260 lines. No images. One Mermaid diagram for the architecture section. Use GitHub alert syntax (`> [!WARNING]`) for the experimental banner.
 
-Product name conventions: use **Zinq** (the product/UI name, matching `public/manifest` and `vite.config.ts:66`) in prose; note the repo/package name is `zinqq` in an inline aside the first time it appears, then stop referring to it.
+Product name convention: use **Zinqq** consistently (matches `index.html` title and `src/ldk/context.tsx` wallet description). The PWA manifest in `vite.config.ts` still reads `Zinq` and gets aligned in this PR.
 
 ### File outline
 
 ````markdown
-# Zinq
+# Zinqq
 
 > A self-custodial Bitcoin Lightning wallet that runs entirely in your browser.
 
 > [!WARNING]
 > Experimental software on Bitcoin mainnet...
 
-## Why Zinq
+## Why Zinqq
 
 <prose + compact bullets>
 
@@ -74,17 +74,16 @@ flowchart LR ...
 
 #### 1. Hero + warning (~12 lines)
 
-- `# Zinq` title.
+- `# Zinqq` title.
 - One-line tagline below title (block-quote styled): *"A self-custodial Bitcoin Lightning wallet that runs entirely in your browser."*
-- One-sentence aside: *"The repo and package name are `zinqq`; the product surface is Zinq."*
 - GitHub `> [!WARNING]` block with three points:
   - Experimental software on Bitcoin mainnet.
   - Active development; channel state format and storage layout may change.
   - Use only amounts you can afford to lose. Back up your 12-word seed before funding.
 
-#### 2. Why Zinq — philosophy & differentiators (~30–40 lines)
+#### 2. Why Zinqq — philosophy & differentiators (~30–40 lines)
 
-Short intro paragraph (2–3 sentences): Zinq is a thesis about what a Lightning wallet should be in 2026 — browser-first, self-custodial, and Lightning-first with on-chain as an escape hatch.
+Short intro paragraph (2–3 sentences): Zinqq is a thesis about what a Lightning wallet should be in 2026 — browser-first, self-custodial, and Lightning-first with on-chain as an escape hatch.
 
 Then a compact differentiators list (one line each, bolded lead-in):
 
@@ -126,7 +125,7 @@ Four grouped subsections with short H3 headings. Each bullet names the capabilit
 
 #### 4. How it works — architecture (~60–90 lines)
 
-Short opening paragraph (3–4 sentences): Zinq has three tiers — the browser runtime that does all signing and state, a small set of edge proxies that give the browser access to TCP peers and authenticated chain data, and the external services those proxies reach.
+Short opening paragraph (3–4 sentences): Zinqq has three tiers — the browser runtime that does all signing and state, a small set of edge proxies that give the browser access to TCP peers and authenticated chain data, and the external services those proxies reach.
 
 Then the Mermaid diagram (see [Mermaid diagram](#mermaid-diagram-specification) below), followed by three short subsections:
 
@@ -195,7 +194,7 @@ Verify the diagram renders on github.com before calling the task complete. Previ
 
 - **GitHub alert syntax.** `> [!WARNING]` renders on github.com and on most IDE previews. It is the right choice per the brainstorm decision to front-load the experimental warning.
 - **Mermaid on GitHub.** GitHub renders Mermaid fenced blocks natively. Keep node labels short; escape `→` with HTML entity (`&rarr;`) if needed for broader renderer compatibility.
-- **Naming.** Use "Zinq" in prose. Call out once that the repo/package is `zinqq` so a search for either lands. Do not go back and forth.
+- **Naming.** Use "Zinqq" everywhere (matches the repo name, `index.html` title, and `src/ldk/context.tsx` wallet description). The PWA manifest in `vite.config.ts` is corrected to match in this same PR.
 - **Spec list formatting.** List BIPs/BOLTs inline inside feature bullets, never as a standalone table — per brainstorm decision to skip a dedicated specs section.
 - **Internal links.** Link into `src/` and `docs/solutions/` sparingly: only when the pointer adds real value (e.g., `src/ldk/payment-input.ts` for the unified-send classifier). Do not build a repo-layout tree.
 - **Formatter.** The project uses Prettier; the README must pass `pnpm format:check`. Prettier's default markdown rules will wrap long lines — avoid over-long bullet lines (≤ ~120 chars) to keep diffs stable.
@@ -204,8 +203,8 @@ Verify the diagram renders on github.com before calling the task complete. Previ
 ## Acceptance Criteria
 
 - [x] `/Users/conor/Projects/zinq/README.md` exists and is committed on a feature branch (never directly to `main`). Branch: `docs/add-readme`.
-- [x] Opens with `# Zinq`, tagline blockquote, and a GitHub `> [!WARNING]` block covering the three points listed in the outline.
-- [x] Contains exactly three top-level sections after the hero: "Why Zinq", "What it does", "How it works", in that order.
+- [x] Opens with `# Zinqq`, tagline blockquote, and a GitHub `> [!WARNING]` block covering the three points listed in the outline.
+- [x] Contains exactly three top-level sections after the hero: "Why Zinqq", "What it does", "How it works", in that order.
 - [x] "What it does" groups features under the four H3 headings: Send & Receive, Channels & liquidity, Backup & recovery, Progressive web app.
 - [x] Feature bullets name the relevant specs inline: BIP 39, BIP 32, BIP 84, BIP 321, BIP 353, BOLT 11, BOLT 12, LNURL-pay, LSPS2.
 - [x] Mermaid diagram is present, follows the specification above, and renders on github.com. _Visual verification of rendering deferred to PR preview._
@@ -214,11 +213,11 @@ Verify the diagram renders on github.com before calling the task complete. Previ
 - [x] `pnpm format:check` passes for `README.md`. (Verified with `npx prettier --check README.md`; unrelated pre-existing docs files still fail the repo-wide check, out of scope here.)
 - [x] No sections for local development setup, license, contributing, or repo-layout tree.
 - [x] No screenshots or other images.
-- [x] The repo/package name (`zinqq`) is mentioned once as a textual aside near the top. (It also appears once inside the DNS hostname `proxy.zinqq.app` in the Edge proxies section; that is a real production hostname, not a second textual reference, so retaining it preserves accuracy.)
+- [x] Name is spelled "Zinqq" everywhere in the README (no bare "Zinq"). Supersedes an earlier criterion that incorrectly asked for a Zinq/zinqq distinction; the aside line was removed and the PWA manifest corrected in the same PR.
 
 ## System-Wide Impact
 
-- **Interaction graph.** Zero code impact. The only artifact is a new markdown file at the repo root.
+- **Interaction graph.** Minimal code impact: the only code change is aligning the PWA manifest `name`/`short_name` in `vite.config.ts` from `Zinq` to `Zinqq`. The main artifact is the new `README.md`.
 - **Error propagation.** N/A.
 - **State lifecycle risks.** N/A.
 - **API surface parity.** N/A.
@@ -256,7 +255,7 @@ Verify the diagram renders on github.com before calling the task complete. Previ
 ### Internal References
 
 - `package.json` — dependency versions to cite (LDK 0.1.8-0, BDK 0.3.0, React 19, Vite 7, Tailwind v4).
-- `vite.config.ts:66-68` — canonical product name and description strings (`name: 'Zinq'`, `description: 'Lightning wallet powered by LDK'`).
+- `vite.config.ts:66-68` — canonical product name and description strings (`name: 'Zinqq'`, `description: 'Lightning wallet powered by LDK'`).
 - `index.html:13` — CSP lock-down lists every external host the app contacts; useful cross-check for the "External services" section.
 - `src/ldk/payment-input.ts` — unified payment classifier (Send feature).
 - `src/ldk/lsps2/` — LSPS2 JIT channel client.

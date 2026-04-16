@@ -1,43 +1,41 @@
-# Zinq
+# Zinqq
 
 > A self-custodial Bitcoin Lightning wallet that runs entirely in your browser.
 
 > [!WARNING]
-> **Experimental software on Bitcoin mainnet.** Zinq is under active development;
-> storage layouts, channel-state formats, and external interfaces can change
-> between commits. Use only amounts you can afford to lose, and back up your
-> 12-word seed before funding the wallet.
-
-_The repo and package name is `zinqq`; the product surface is Zinq._
+> **Experimental software on Bitcoin mainnet.** Zinqq is under active
+> development; storage layouts, channel-state formats, and external interfaces
+> can change between commits. Use only amounts you can afford to lose, and back
+> up your 12-word seed before funding the wallet.
 
 ---
 
-## Why Zinq
+## Why Zinqq
 
-Zinq is a working answer to a single question: what does a Bitcoin Lightning
+Zinqq is a working answer to a single question: what does a Bitcoin Lightning
 wallet look like if it trusts nothing outside the device it runs on? No
 custodian, no server-side signing, no native install, and no hidden on-chain
 fallback.
 
 - **Browser-only.** LDK and BDK both ship as WebAssembly; every signing
-  operation happens client-side. Zinq installs as a PWA on iOS, Android, and
+  operation happens client-side. Zinqq installs as a PWA on iOS, Android, and
   desktop, but it doesn't require installation to run.
 - **Self-custodial by construction.** The BIP 39 seed never leaves the device.
   The cross-device backend (VSS) sees only ChaCha20-Poly1305-encrypted blobs
   with hashed keys; request authentication is a secp256k1 signature, not a
   password.
 - **Lightning-first.** Payments always attempt Lightning. On-chain exists as an
-  escape hatch — for example, the BIP 321 URI Zinq generates on receive bundles
+  escape hatch — for example, the BIP 321 URI Zinqq generates on receive bundles
   an on-chain address alongside a BOLT 11 invoice — and is never a silent
   fallback.
 - **Instant inbound via LSPS2.** A user's first receive doesn't need manual
-  channel management: Zinq buys a just-in-time channel from a configured LSP
+  channel management: Zinqq buys a just-in-time channel from a configured LSP
   the moment inbound liquidity is needed.
 - **Anchor channels with a proactive reserve.** A small on-chain balance stays
   available for CPFP fee-bumping at force-close, and a dedicated recovery flow
   walks the user through topping it up if the reserve is ever exhausted.
 - **Encrypted cross-device restore.** Restore from the 12-word seed alone and
-  Zinq rebuilds channel monitors, channel manager, scorer, network graph, and
+  Zinqq rebuilds channel monitors, channel manager, scorer, network graph, and
   known peers from VSS — no manual static-channel-backup juggling.
 - **Unified send UX.** One input box classifies BIP 321 URIs, BOLT 11 invoices,
   BOLT 12 offers, BIP 353 human-readable names, LNURL-pay, and raw on-chain
@@ -52,7 +50,7 @@ fallback.
 - Receive produces a single QR that combines an on-chain address and a BOLT 11
   invoice in a BIP 321 URI. BOLT 12 offers have their own view.
 - Just-in-time inbound liquidity via LSPS2: when a requested invoice exceeds
-  available inbound capacity, Zinq negotiates a channel purchase with the LSP
+  available inbound capacity, Zinqq negotiates a channel purchase with the LSP
   and encodes the SCID and route hint into the invoice (`src/ldk/lsps2/`).
 - Camera-based QR scanning for any of the supported payment inputs.
 
@@ -74,7 +72,7 @@ fallback.
 - Encrypted VSS sync of channel monitors, channel manager, network graph,
   scorer, known peers, payment history, and the BOLT 12 offer
   (`src/ldk/storage/vss-client.ts`).
-- Restore from seed on a fresh device: Zinq pulls the encrypted state from VSS,
+- Restore from seed on a fresh device: Zinqq pulls the encrypted state from VSS,
   decrypts locally with the key derived from the mnemonic, and reconstructs the
   LDK node.
 
@@ -87,7 +85,7 @@ fallback.
 
 ## How it works
 
-Zinq runs in three tiers: a browser-side runtime that does all signing and
+Zinqq runs in three tiers: a browser-side runtime that does all signing and
 state management, a small set of edge proxies that grant the browser access to
 TCP peers and authenticated chain data, and the external services those
 proxies reach.
@@ -166,11 +164,11 @@ flowchart LR
 
 ### External services
 
-- **Lightning peers and the LSPS2 LSP** — peers Zinq connects to for payment
+- **Lightning peers and the LSPS2 LSP** — peers Zinqq connects to for payment
   routing, including the configured LSP for just-in-time channel purchase.
 - **Blockstream Enterprise Esplora** — chain data (blocks, transactions,
   UTXOs, fee estimates).
-- **VSS origin** — encrypted cross-device state store. Zinq never trusts it
+- **VSS origin** — encrypted cross-device state store. Zinqq never trusts it
   with plaintext.
 - **Rapid Gossip Sync** — the LDK public snapshot at
   `rapidsync.lightningdevkit.org` seeds the network graph.
