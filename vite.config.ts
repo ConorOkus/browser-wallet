@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import wasm from 'vite-plugin-wasm'
 import topLevelAwait from 'vite-plugin-top-level-await'
 import { VitePWA } from 'vite-plugin-pwa'
+import { parseTarget } from './api/payjoin-proxy'
 
 /**
  * Vite plugin that proxies LNURL requests to bypass CORS issues.
@@ -52,8 +53,10 @@ function lnurlCorsProxy(): Plugin {
 /**
  * Vite plugin that proxies Payjoin (BIP 78 v1 + BIP 77 v2) sender traffic in
  * dev. Routes POST /__payjoin_proxy/DOMAIN/PATH to https://DOMAIN/PATH with
- * body forwarding. Mirrors the production proxy at api/payjoin-proxy.ts with a
- * minimal subset of controls (validation-only, no rate limit in dev).
+ * body forwarding. Mirrors the production proxy at api/payjoin-proxy.ts by
+ * sharing parseTarget (scheme + private-IP + hostname normalization). Without
+ * this, a dev binding Vite to 0.0.0.0 for mobile LAN testing would expose an
+ * SSRF pivot on the local network.
  */
 function payjoinCorsProxy(): Plugin {
   return {
@@ -68,21 +71,13 @@ function payjoinCorsProxy(): Plugin {
           return
         }
 
-        const rest = req.url.slice(prefix.length)
-        const slashIdx = rest.indexOf('/')
-        if (slashIdx === -1 || /[\r\n]/.test(rest) || rest.length > 2048) {
+        const pathParam = req.url.slice(prefix.length)
+        const target = parseTarget(pathParam)
+        if (!target) {
           res.statusCode = 400
           res.end('Bad proxy URL')
           return
         }
-        const targetHost = rest.slice(0, slashIdx)
-        const targetPath = rest.slice(slashIdx)
-        if (targetHost.includes('@') || targetHost.includes(':')) {
-          res.statusCode = 400
-          res.end('Bad host')
-          return
-        }
-        const targetUrl = `https://${targetHost}${targetPath}`
 
         const contentType = req.headers['content-type'] ?? ''
         if (
@@ -109,7 +104,7 @@ function payjoinCorsProxy(): Plugin {
         })
         req.on('end', () => {
           const body = Buffer.concat(chunks)
-          fetch(targetUrl, {
+          fetch(target.toString(), {
             method: 'POST',
             headers: {
               'content-type': contentType,
@@ -128,6 +123,7 @@ function payjoinCorsProxy(): Plugin {
               res.end(buf)
             })
             .catch((err: unknown) => {
+              console.error('[payjoin-proxy] upstream error', err)
               res.statusCode = 502
               res.end(err instanceof Error ? err.message : 'Proxy error')
             })

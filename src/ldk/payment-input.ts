@@ -273,13 +273,13 @@ function parseBip321(input: string): ParsedPaymentInput {
   // Capture payjoin raw value. No scheme validation here — BIP 77 v2 uses
   // bitcoin:/payjoin: schemes inside pj=, so filtering on https here would
   // silently disable v2. PDK's parseUri rejects invalid shapes downstream.
-  // Length-bound prevents pathological inputs.
+  // Length-bound matches the proxy's parseTarget limit (api/payjoin-proxy.ts).
   let payjoin: PayjoinContext | undefined
-  if (pjValue && pjValue.length > 0 && pjValue.length < 2048) {
+  if (pjValue && pjValue.length > 0 && pjValue.length <= 2048) {
     payjoin = { url: pjValue, strict: pjosValue === '0' }
   }
 
-  return { type: 'onchain', address, amountSats, ...(payjoin && { payjoin }) }
+  return { type: 'onchain', address, amountSats, payjoin }
 }
 
 /** Convert a BTC-denominated string to satoshis using fixed-point parsing. */

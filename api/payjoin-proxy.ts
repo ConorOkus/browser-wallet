@@ -8,8 +8,10 @@
  *
  * Security controls:
  *   - POST-only
+ *   - Gated behind PAYJOIN_PROXY_ENABLED env var (returns 503 if unset)
  *   - HTTPS targets only; private/loopback/link-local IP ranges rejected
- *   - Body capped at 100 KB
+ *   - Hostname normalized via URL parser; trailing dot / double dot rejected
+ *   - Body streamed with 100 KB short-circuit (no arrayBuffer() amplification)
  *   - Content-type allowlist (text/plain for v1, message/ohttp-req for v2)
  *   - Inbound header allowlist (strip Cookie/Authorization/Origin/Referer/etc.)
  *   - 20s upstream timeout; redirects disabled (redirect: 'manual')
@@ -18,16 +20,6 @@
  */
 
 export const config = { runtime: 'edge' }
-
-/** v2 OHTTP relays + directory allowed as destinations. v1 endpoints are
- *  receiver-chosen and cannot be statically allowlisted — scheme + private-IP
- *  rejection are the available controls. */
-const V2_HOSTS = new Set([
-  'payjo.in',
-  'pj.benalleng.com',
-  'pj.bobspacebkk.com',
-  'ohttp.achow101.com',
-])
 
 /** Content types permitted from the browser. */
 const ALLOWED_CONTENT_TYPES = ['text/plain', 'message/ohttp-req']
@@ -55,11 +47,14 @@ function checkRateLimit(key: string): boolean {
   return true
 }
 
-/** Reject if hostname resolves to a private / loopback / link-local range. */
+/**
+ * Reject private / loopback / link-local / CGNAT IPv4 ranges.
+ * Invariant: IPv6 literals (including ULA fc00::/7, link-local fe80::/10,
+ * loopback ::1, mapped ::ffff:) are rejected earlier by parseTarget's `:`
+ * filter, so we do not check them here. Do not lift the `:` filter without
+ * also adding explicit IPv6 range checks to this function.
+ */
 export function isPrivateIp(hostname: string): boolean {
-  // String-form check for literal IPs in _path. DNS-time check happens in the
-  // fetch runtime and relies on Edge Runtime's built-in refusal of private
-  // ranges for outbound fetches. Document residual DNS-rebinding risk in PR.
   if (hostname === 'localhost' || hostname === '0.0.0.0') return true
   if (/^127\./.test(hostname)) return true
   if (/^10\./.test(hostname)) return true
@@ -67,9 +62,6 @@ export function isPrivateIp(hostname: string): boolean {
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(hostname)) return true
   if (/^169\.254\./.test(hostname)) return true
   if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(hostname)) return true
-  if (hostname === '::1' || hostname.startsWith('fc') || hostname.startsWith('fd')) return true
-  if (hostname.startsWith('fe80')) return true
-  if (/^::ffff:/.test(hostname)) return true
   return false
 }
 
@@ -83,22 +75,36 @@ export function parseTarget(pathParam: string): URL | null {
   const host = pathParam.slice(0, slashIdx)
   const path = pathParam.slice(slashIdx)
 
-  // Reject userinfo embedded in host and any non-hostname chars.
+  // Reject userinfo embedded in host and any non-hostname chars (rejects IPv6
+  // literals entirely via `:`).
   if (host.includes('@') || host.includes(':') || !/^[a-z0-9.-]+$/i.test(host)) return null
+  // Reject malformed labels: leading/trailing/double dots.
+  if (host.startsWith('.') || host.endsWith('.') || host.includes('..')) return null
+  // Reject labels with leading/trailing hyphen (RFC 1035 violation).
+  for (const label of host.split('.')) {
+    if (label.length === 0) return null
+    if (label.startsWith('-') || label.endsWith('-')) return null
+  }
   if (isPrivateIp(host)) return null
 
+  let target: URL
   try {
-    const target = new URL(`https://${host}${path}`)
-    if (target.protocol !== 'https:') return null
-    if (target.port && target.port !== '443') return null
-    return target
+    target = new URL(`https://${host}${path}`)
   } catch {
     return null
   }
+  if (target.protocol !== 'https:') return null
+  if (target.port && target.port !== '443') return null
+  // URL normalization sanity: the hostname we assembled must round-trip as-is
+  // (catches punycode surprises and internal parser quirks).
+  if (target.hostname !== host.toLowerCase()) return null
+  return target
 }
 
 function clientIpOf(request: Request): string {
-  // Vercel sets x-real-ip; fall back to x-forwarded-for first hop, else 'unknown'.
+  // Vercel Edge sets x-real-ip and x-forwarded-for at the platform layer;
+  // these are trustworthy for inbound traffic through Vercel's CDN. This
+  // function is NOT safe on any other host — review before porting.
   const realIp = request.headers.get('x-real-ip')
   if (realIp) return realIp
   const xff = request.headers.get('x-forwarded-for')
@@ -106,7 +112,49 @@ function clientIpOf(request: Request): string {
   return 'unknown'
 }
 
+/**
+ * Read request body into a Uint8Array, aborting as soon as the running total
+ * exceeds MAX_BODY_BYTES. Prevents content-length-spoofing amplification where
+ * a caller declares a small content-length and then streams a large body —
+ * `request.arrayBuffer()` would buffer the whole thing before we could reject.
+ */
+async function readCappedBody(request: Request): Promise<Uint8Array | null> {
+  if (!request.body) return new Uint8Array(0)
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.length
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel()
+        return null
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  const body = new Uint8Array(total)
+  let offset = 0
+  for (const c of chunks) {
+    body.set(c, offset)
+    offset += c.length
+  }
+  return body
+}
+
 export async function POST(request: Request): Promise<Response> {
+  // Gate: the proxy is deployed to public Vercel URLs but has no consumer
+  // until Phase 3 wires it in. Default to disabled to avoid being used as an
+  // open outbound POST cannon. Flip PAYJOIN_PROXY_ENABLED=1 in the Vercel
+  // dashboard when a preview needs live testing, and before Phase 3 ship.
+  if (process.env.PAYJOIN_PROXY_ENABLED !== '1') {
+    return Response.json({ error: 'payjoin proxy disabled' }, { status: 503 })
+  }
+
   const url = new URL(request.url)
   const pathParam = url.searchParams.get('_path') ?? ''
   const target = parseTarget(pathParam)
@@ -117,29 +165,17 @@ export async function POST(request: Request): Promise<Response> {
     )
   }
 
-  // v1 allows any public https host (receiver-chosen). v2 requires allowlisted hosts.
-  // We cannot reliably distinguish v1 vs v2 traffic from the HTTP layer alone, so we
-  // enforce the public-https posture uniformly and accept v2 relays as a superset.
-  if (!V2_HOSTS.has(target.hostname)) {
-    // Host is a v1 receiver-chosen endpoint; pass through (private-IP already rejected).
-  }
-
   const contentType = request.headers.get('content-type') ?? ''
   if (!ALLOWED_CONTENT_TYPES.some((ct) => contentType.startsWith(ct))) {
     return Response.json({ error: 'unsupported content-type' }, { status: 415 })
-  }
-
-  const contentLength = Number(request.headers.get('content-length') ?? 0)
-  if (contentLength > MAX_BODY_BYTES) {
-    return Response.json({ error: 'body too large' }, { status: 413 })
   }
 
   if (!checkRateLimit(clientIpOf(request))) {
     return Response.json({ error: 'rate limit exceeded' }, { status: 429 })
   }
 
-  const body = await request.arrayBuffer()
-  if (body.byteLength > MAX_BODY_BYTES) {
+  const body = await readCappedBody(request)
+  if (body === null) {
     return Response.json({ error: 'body too large' }, { status: 413 })
   }
 
@@ -169,7 +205,9 @@ export async function POST(request: Request): Promise<Response> {
       status: upstream.status,
       headers: responseHeaders,
     })
-  } catch {
+  } catch (err) {
+    // Surface the cause for ops. Response body stays generic (no info leak).
+    console.error('[payjoin-proxy] upstream error', err instanceof Error ? err.message : String(err))
     return Response.json({ error: 'upstream unavailable' }, { status: 502 })
   }
 }

@@ -1,3 +1,7 @@
+// Compile-time safety limits (bigint, not env-overridable). Kept as top-level
+// exports rather than inside ONCHAIN_CONFIG because that object holds
+// runtime/env-derived values; these are invariants of the wallet's fee policy.
+
 /** Minimum fee rate the wallet will broadcast at (sat/vB). */
 export const MIN_FEE_RATE_SAT_VB = 2n
 
