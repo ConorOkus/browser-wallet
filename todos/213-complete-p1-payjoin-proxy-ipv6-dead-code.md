@@ -1,7 +1,7 @@
 ---
 status: complete
 priority: p1
-issue_id: "213"
+issue_id: '213'
 tags: [code-review, security, payjoin, dead-code]
 dependencies: []
 ---
@@ -72,6 +72,7 @@ _To be filled during triage._ Likely Option 1 (simplest, most honest).
 ## Technical Details
 
 **Affected files:**
+
 - `api/payjoin-proxy.ts:70-72` (dead branches)
 - `api/payjoin-proxy.test.ts:32-38` (IPv6 tests will fail after delete — rewrite to assert parseTarget rejects them)
 
@@ -94,6 +95,7 @@ _To be filled during triage._ Likely Option 1 (simplest, most honest).
 **By:** Claude Code (ce:review)
 
 **Actions:**
+
 - security-sentinel flagged IPv6 regex incompleteness
 - Confirmed branches are unreachable due to `:` filter in parseTarget
 - Filed as P1 because of false positives (real hosts blocked)

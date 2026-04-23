@@ -1,7 +1,7 @@
 ---
 status: complete
 priority: p2
-issue_id: "214"
+issue_id: '214'
 tags: [code-review, security, payjoin]
 dependencies: []
 ---
@@ -17,6 +17,7 @@ if (host.includes('@') || host.includes(':') || !/^[a-z0-9.-]+$/i.test(host)) re
 ```
 
 This passes hostnames like:
+
 - `evil.com.` (trailing dot) — valid DNS, but `'evil.com.' !== 'evil.com'` bypasses equality-check allowlists
 - `.evil.com` (leading dot) — invalid DNS, should reject
 - `evil..com` (double dot) — invalid, should reject
@@ -64,6 +65,7 @@ _To be filled during triage._ Likely Option 1.
 ## Technical Details
 
 **Affected files:**
+
 - `api/payjoin-proxy.ts:87` (parseTarget)
 - `api/payjoin-proxy.test.ts` (add tests for normalization)
 

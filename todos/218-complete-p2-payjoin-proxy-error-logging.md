@@ -1,7 +1,7 @@
 ---
 status: complete
 priority: p2
-issue_id: "218"
+issue_id: '218'
 tags: [code-review, observability, payjoin]
 dependencies: []
 ---
@@ -31,6 +31,7 @@ The catch block discards the error entirely. A failing upstream (timeout, DNS fa
 ### Option 1: `console.error` before return (Recommended)
 
 **Approach:**
+
 ```ts
 } catch (err) {
   console.error('[payjoin-proxy]', err instanceof Error ? err.message : String(err))
@@ -59,6 +60,7 @@ _To be filled during triage._ Option 1 is sufficient for Phase 1; Option 2 when 
 ## Technical Details
 
 **Affected files:**
+
 - `api/payjoin-proxy.ts:171-173`
 
 ## Resources

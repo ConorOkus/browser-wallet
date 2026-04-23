@@ -207,7 +207,10 @@ export async function POST(request: Request): Promise<Response> {
     })
   } catch (err) {
     // Surface the cause for ops. Response body stays generic (no info leak).
-    console.error('[payjoin-proxy] upstream error', err instanceof Error ? err.message : String(err))
+    console.error(
+      '[payjoin-proxy] upstream error',
+      err instanceof Error ? err.message : String(err)
+    )
     return Response.json({ error: 'upstream unavailable' }, { status: 502 })
   }
 }

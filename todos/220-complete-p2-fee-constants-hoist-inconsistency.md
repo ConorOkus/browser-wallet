@@ -1,7 +1,7 @@
 ---
 status: complete
 priority: p2
-issue_id: "220"
+issue_id: '220'
 tags: [code-review, architecture, payjoin]
 dependencies: []
 ---
@@ -34,6 +34,7 @@ Architecture reviewer flagged this; Kieran flagged it as "wrong shape"; Simplici
 ### Option 1: Move into `ONCHAIN_CONFIG`, rename to camelCase (Recommended)
 
 **Approach:**
+
 ```ts
 export const ONCHAIN_CONFIG = {
   ...DEFAULTS,
@@ -45,7 +46,7 @@ export const ONCHAIN_CONFIG = {
 ```
 
 **Pros:** One consistent shape in the file.
-**Cons:** Mixes runtime-configurable (env-overridable URLs) with compile-time constants (bigint safety limits); the current separation is actually *meaningful*.
+**Cons:** Mixes runtime-configurable (env-overridable URLs) with compile-time constants (bigint safety limits); the current separation is actually _meaningful_.
 **Effort:** Small (15 min + rename all usage sites).
 **Risk:** Low.
 
@@ -68,6 +69,7 @@ export const MAX_FEE_SATS = 50_000n
 ### Option 3: Introduce `FEE_LIMITS` object
 
 **Approach:**
+
 ```ts
 export const FEE_LIMITS = {
   minFeeRateSatVb: 2n,
@@ -96,6 +98,7 @@ _To be filled during triage._ Option 2 or Option 4. Option 2 if keeping the hois
 ## Technical Details
 
 **Affected files:**
+
 - `src/onchain/config.ts:1-5`
 - `src/onchain/context.tsx:21, 30-32`
 

@@ -131,7 +131,12 @@ describe('payjoin-proxy — POST handler', () => {
     body?: BodyInit | null
     clientIp?: string
   }): Request {
-    const { pathParam = 'btcpay.example.com/payjoin/x', contentType = 'text/plain', body = 'cHNidP8=', clientIp } = opts
+    const {
+      pathParam = 'btcpay.example.com/payjoin/x',
+      contentType = 'text/plain',
+      body = 'cHNidP8=',
+      clientIp,
+    } = opts
     const headers: HeadersInit = { 'content-type': contentType }
     if (clientIp) headers['x-real-ip'] = clientIp
     return new Request(
@@ -222,10 +227,7 @@ describe('payjoin-proxy — POST handler', () => {
     fetchSpy.mockRejectedValue(new Error('network unreachable'))
     const res = await POST(makeRequest({}))
     expect(res.status).toBe(502)
-    expect(errSpy).toHaveBeenCalledWith(
-      '[payjoin-proxy] upstream error',
-      'network unreachable'
-    )
+    expect(errSpy).toHaveBeenCalledWith('[payjoin-proxy] upstream error', 'network unreachable')
     errSpy.mockRestore()
   })
 

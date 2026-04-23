@@ -64,7 +64,7 @@ Today, any BIP 321 URI with a `pj=` parameter is silently ignored by `parseBip32
 - **Ecosystem parity**: BTCPay Server, Wasabi, Sparrow, BlueWallet, and (as of 2025) Bull Bitcoin all ship Payjoin. Not supporting it marks Zinqq as a lower-tier wallet.
 - **No cost to opt in**: Payjoin is backwards-compatible. If the receiver doesn't support it, the sender falls back to a normal broadcast. There is no user-facing downside to supporting it.
 
-The brainstorm's dual motivation — *privacy by default* and *opportunistic compatibility* — maps directly to: "if `pj=` is present, use it; otherwise act as today."
+The brainstorm's dual motivation — _privacy by default_ and _opportunistic compatibility_ — maps directly to: "if `pj=` is present, use it; otherwise act as today."
 
 ## Proposed Solution
 
@@ -167,7 +167,7 @@ function parseBip321(input: string): ParsedPaymentInput {
 }
 ```
 
-> **Correction note**: an earlier draft of this snippet enforced `url.protocol === 'https:'` at the parser layer. That would have silently dropped every BIP 77 v2 URI. Scheme/shape validation belongs inside PDK's `parseUri`, which understands v1 (https) *and* v2 (`bitcoin:`/`payjoin:`) shapes. Parser's job is to capture the raw value; PDK's job is to reject invalid shapes with a `validation` fallback reason.
+> **Correction note**: an earlier draft of this snippet enforced `url.protocol === 'https:'` at the parser layer. That would have silently dropped every BIP 77 v2 URI. Scheme/shape validation belongs inside PDK's `parseUri`, which understands v1 (https) _and_ v2 (`bitcoin:`/`payjoin:`) shapes. Parser's job is to capture the raw value; PDK's job is to reject invalid shapes with a `validation` fallback reason.
 
 Test cases added to `src/ldk/payment-input.test.ts`:
 
@@ -195,13 +195,13 @@ export const FALLBACK_REASONS = {
   backgrounded: 'backgrounded',
   unknown: 'unknown',
 } as const satisfies Record<string, string>
-export type FallbackReason = typeof FALLBACK_REASONS[keyof typeof FALLBACK_REASONS]
+export type FallbackReason = (typeof FALLBACK_REASONS)[keyof typeof FALLBACK_REASONS]
 
 // Telemetry collapses fine-grained reasons into 3 buckets to prevent
 // receiver fingerprinting. Fine-grained reason stays in debug console.
 export const TELEMETRY_BUCKETS = {
   succeeded: 'payjoin_succeeded',
-  fallback_transient: 'payjoin_fallback_transient',  // network/timeout/proxy/pdk_load/pdk_error/backgrounded/unknown
+  fallback_transient: 'payjoin_fallback_transient', // network/timeout/proxy/pdk_load/pdk_error/backgrounded/unknown
   fallback_validation: 'payjoin_fallback_validation', // hostile-receiver signal
 } as const
 
@@ -212,7 +212,7 @@ export const TELEMETRY_BUCKETS = {
 export async function tryPayjoinSend(
   originalPsbt: Psbt,
   payjoinCtx: PayjoinContext,
-  ctx: { wallet: Wallet, feeRate: bigint, signal: AbortSignal },
+  ctx: { wallet: Wallet; feeRate: bigint; signal: AbortSignal }
 ): Promise<Psbt> {
   // 0. Kill switch
   if (localStorage.getItem('zinqq_payjoin_disabled') === '1') return originalPsbt
@@ -263,7 +263,7 @@ export function validateProposal(
   proposal: Psbt,
   original: Psbt,
   wallet: Wallet,
-  originalFeeRate: bigint,
+  originalFeeRate: bigint
 ): ValidationResult {
   // a) Lookahead-aware ownership check. Temporarily extend keychain lookahead
   //    (reveal_addresses_to, external + internal; +100 indices is enough given
@@ -307,24 +307,23 @@ const ALLOWED_HOSTS = [
 ]
 
 const ALLOWED_CONTENT_TYPES = [
-  'text/plain',              // v1 PSBT base64
-  'message/ohttp-req',       // v2 OHTTP encapsulated request
-  'application/octet-stream' // some v1 receivers
+  'text/plain', // v1 PSBT base64
+  'message/ohttp-req', // v2 OHTTP encapsulated request
+  'application/octet-stream', // some v1 receivers
 ]
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
 
   const target = req.query._url as string
-  const targetUrl = parseAndValidate(target)       // scheme=https, length bound
+  const targetUrl = parseAndValidate(target) // scheme=https, length bound
   if (!targetUrl) return res.status(400).end()
 
   const bodyLen = Number(req.headers['content-length'] ?? 0)
   if (bodyLen > 100 * 1024) return res.status(413).end()
 
   const ctype = req.headers['content-type']
-  if (!ALLOWED_CONTENT_TYPES.some(a => ctype?.startsWith(a)))
-    return res.status(415).end()
+  if (!ALLOWED_CONTENT_TYPES.some((a) => ctype?.startsWith(a))) return res.status(415).end()
 
   // 20s upstream timeout (longer than v2's 15s foreground budget to allow
   // directory handoff; v1 sender times out its own fetch at 15s).
@@ -351,10 +350,15 @@ let pdkPromise: Promise<PdkModule> | null = null
 
 export function loadPdk(): Promise<PdkModule> {
   if (!pdkPromise) {
-    pdkPromise = import('./pdk-wasm').then(async m => {
-      await m.uniffiInitAsync()
-      return m
-    }).catch(err => { pdkPromise = null; throw err })
+    pdkPromise = import('./pdk-wasm')
+      .then(async (m) => {
+        await m.uniffiInitAsync()
+        return m
+      })
+      .catch((err) => {
+        pdkPromise = null
+        throw err
+      })
   }
   return pdkPromise
 }
@@ -520,6 +524,7 @@ Send.tsx:handleOcConfirm
 ```
 
 **Key invariants:**
+
 - One `pause/resume` pair per call — the fallback path does NOT call back into `buildSignBroadcast`.
 - Fee sanity (`MAX_FEE_SATS`) runs once, on whatever PSBT is being signed.
 - `discardStagedChanges` fires on every non-success exit from `transformPsbt`.
@@ -527,15 +532,15 @@ Send.tsx:handleOcConfirm
 
 ### Error & Failure Propagation
 
-| Layer | Error class | Handling |
-|-------|-------------|----------|
-| PDK loader | Network / dynamic import failure | `fallback: pdk_load` |
-| PDK sender (build) | Invalid original PSBT | Bubble to user (same as non-Payjoin bad tx) |
-| Proxy (our server) | 4xx / 5xx / timeout | `fallback: proxy` |
-| Receiver endpoint | HTTP failure | `fallback: network` |
+| Layer                   | Error class                                                                                                                                | Handling                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| PDK loader              | Network / dynamic import failure                                                                                                           | `fallback: pdk_load`                                                                                                       |
+| PDK sender (build)      | Invalid original PSBT                                                                                                                      | Bubble to user (same as non-Payjoin bad tx)                                                                                |
+| Proxy (our server)      | 4xx / 5xx / timeout                                                                                                                        | `fallback: proxy`                                                                                                          |
+| Receiver endpoint       | HTTP failure                                                                                                                               | `fallback: network`                                                                                                        |
 | PDK sender (validation) | `FeeContributionExceedsMaximum`, `AbsoluteFeeDecreased`, `PayeeTookContributedFee`, `MissingOrShuffledInputs`, `FeeRateBelowMinimum`, etc. | `fallback_validation` telemetry bucket (fine-grained class stays in debug console only — prevents receiver fingerprinting) |
-| Post-PDK validation | Failed is_mine / dust / change-delta / preservation | `fallback_validation` bucket |
-| Broadcast | Esplora error | Surfaces to user (same as non-Payjoin) |
+| Post-PDK validation     | Failed is_mine / dust / change-delta / preservation                                                                                        | `fallback_validation` bucket                                                                                               |
+| Broadcast               | Esplora error                                                                                                                              | Surfaces to user (same as non-Payjoin)                                                                                     |
 
 **Explicit non-alignment**: we consciously diverge from brainstorm's "silent fallback on any failure" on the `validation` case only — user UX remains silent, but telemetry captures the event because a validating-failed Payjoin likely indicates a hostile or buggy receiver and we need the signal.
 
@@ -550,13 +555,13 @@ Send.tsx:handleOcConfirm
 
 ### API Surface Parity
 
-| Interface | Payjoin-capable? |
-|-----------|------------------|
-| `onchain.sendToAddress(address, amount, feeRate, transformPsbt?)` | **Yes** — caller passes `tryPayjoinSend` as the `transformPsbt` hook on `buildSignBroadcast` |
-| `onchain.sendMax(address, feeRate)` | **No** — no change output means no fee-contribution slot. Caller never passes `transformPsbt`. Documented. |
-| Lightning sends | N/A — Payjoin is on-chain only |
-| LNURL sends | N/A |
-| Future: consolidation / self-send | Payjoin disabled (self-send defeats the purpose) |
+| Interface                                                         | Payjoin-capable?                                                                                           |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `onchain.sendToAddress(address, amount, feeRate, transformPsbt?)` | **Yes** — caller passes `tryPayjoinSend` as the `transformPsbt` hook on `buildSignBroadcast`               |
+| `onchain.sendMax(address, feeRate)`                               | **No** — no change output means no fee-contribution slot. Caller never passes `transformPsbt`. Documented. |
+| Lightning sends                                                   | N/A — Payjoin is on-chain only                                                                             |
+| LNURL sends                                                       | N/A                                                                                                        |
+| Future: consolidation / self-send                                 | Payjoin disabled (self-send defeats the purpose)                                                           |
 
 ### Integration Test Scenarios
 
@@ -578,13 +583,13 @@ Three-to-six scenarios to run against a real BDK wallet + real PDK + mocked rece
 
 Research surfaced several decisions that refine — not contradict — brainstorm conclusions (see brainstorm: `docs/brainstorms/2026-04-23-payjoin-send-brainstorm.md`).
 
-| Brainstorm decision | Plan refinement | Why |
-|---|---|---|
-| "Percentage fee cap on receiver-proposed fee" | **Weight-based cap: `originalFeeRate × 110 vbytes`** | BIP 78 canonical; BTCPayServer & rust-payjoin reference impls both use weight-based, not %. Spec-correct and matches `SenderBuilder::build_recommended()`. |
-| "Auto-fallback to normal broadcast on any failure (silent)" | **UX remains silent; telemetry distinguishes transient vs validation** | Silent fallback on validation failures hides hostile-receiver signal. User still never sees a difference; we just don't silently discard the signal. |
-| "Session-only v2 state" | Confirmed + explicit "app close during v2 poll = user must re-initiate" | Spec-flow surfaced the implied consequence. Worth stating outright. |
-| "v1 + v2 single shipment" | Confirmed + v1 timeout 15s, v2 foreground poll 30s | v2 OHTTP round-trip takes 2-4s per poll; 15s is too tight for receivers with human-in-the-loop. Research confirms no spec standard; 30s is a pragmatic PWA ceiling. |
-| "`pjos=0` out of scope" | Confirmed + **explicitly documented as intentional privacy regression for receiver** | Not hand-waved. Recorded as a known divergence from BIP 78 intent. |
+| Brainstorm decision                                         | Plan refinement                                                                      | Why                                                                                                                                                                 |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Percentage fee cap on receiver-proposed fee"               | **Weight-based cap: `originalFeeRate × 110 vbytes`**                                 | BIP 78 canonical; BTCPayServer & rust-payjoin reference impls both use weight-based, not %. Spec-correct and matches `SenderBuilder::build_recommended()`.          |
+| "Auto-fallback to normal broadcast on any failure (silent)" | **UX remains silent; telemetry distinguishes transient vs validation**               | Silent fallback on validation failures hides hostile-receiver signal. User still never sees a difference; we just don't silently discard the signal.                |
+| "Session-only v2 state"                                     | Confirmed + explicit "app close during v2 poll = user must re-initiate"              | Spec-flow surfaced the implied consequence. Worth stating outright.                                                                                                 |
+| "v1 + v2 single shipment"                                   | Confirmed + v1 timeout 15s, v2 foreground poll 30s                                   | v2 OHTTP round-trip takes 2-4s per poll; 15s is too tight for receivers with human-in-the-loop. Research confirms no spec standard; 30s is a pragmatic PWA ceiling. |
+| "`pjos=0` out of scope"                                     | Confirmed + **explicitly documented as intentional privacy regression for receiver** | Not hand-waved. Recorded as a known divergence from BIP 78 intent.                                                                                                  |
 
 ## Acceptance Criteria
 
@@ -623,7 +628,7 @@ Research surfaced several decisions that refine — not contradict — brainstor
 
 - [ ] Unit test coverage for `parseBip321` Payjoin branches: 100%
 - [ ] Unit tests for `proposal-validator.ts`: each rejection path exercised
-- [ ] Integration tests from *Integration Test Scenarios* above pass against a local `payjoin-cli` receiver (regtest via nigiri)
+- [ ] Integration tests from _Integration Test Scenarios_ above pass against a local `payjoin-cli` receiver (regtest via nigiri)
 - [ ] Manual mainnet verification against a live BTCPay Server instance documented in PR description
 - [ ] Documentation: README update describing Payjoin support; developer doc in `docs/solutions/` for vendoring + update cadence
 
@@ -643,18 +648,18 @@ Research surfaced several decisions that refine — not contradict — brainstor
 
 ## Risk Analysis & Mitigation
 
-| Risk | Likelihood | Impact | Mitigation |
-|---|---|---|---|
-| PDK unreleased library has breaking changes in next 6 months | High | Medium | Pin to commit SHA; document update cadence; versioned manifest. |
-| Vendored WASM bundle bloats main chunk | Low | High | CI bundle-size check on main chunk; code-split enforced by dynamic import. |
-| Public OHTTP relays go offline or rate-limit us | Medium | Medium | Ordered fallback across three relays; if all fail → v2 fallback to fallback. |
-| Malicious receiver exploits edge case in PDK validation | Low | High | `proposal-validator.ts` defense-in-depth; lookahead-aware `wallet.is_mine()` check; change-delta cap; sighash/derivation/script preservation asserts; telemetry surfaces `fallback_validation` for review. |
-| Receiver CORS breakage on v1 | High (spec compliance is spotty) | Low | Always proxy through `/api/payjoin-proxy`; never direct fetch. |
-| Proxy abused as open relay | Medium | Medium | Host + content-type + body-size allowlists; rate limit per IP. |
-| User sees occasional ~3s latency bump (v2 fallback) with no explanation | Medium | Low | `localStorage` debug flag for power users; silent UX for everyone else. Accepted tradeoff from brainstorm. |
-| `pj=` endpoint injects `Set-Cookie` or other unwanted side effects through the proxy | Low | Low | Proxy strips all set-cookie headers; only `content-type` forwarded. |
-| BDK staged-change drift between estimate build and PSBT build | Medium | Medium | Covered by existing `discardStagedChanges` pattern at `src/onchain/context.tsx:165`. |
-| Supply-chain attack via vendored PDK WASM | Low | High | SHA-256 manifest checked into repo; CI verifies fresh build matches. |
+| Risk                                                                                 | Likelihood                       | Impact | Mitigation                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------ | -------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PDK unreleased library has breaking changes in next 6 months                         | High                             | Medium | Pin to commit SHA; document update cadence; versioned manifest.                                                                                                                                            |
+| Vendored WASM bundle bloats main chunk                                               | Low                              | High   | CI bundle-size check on main chunk; code-split enforced by dynamic import.                                                                                                                                 |
+| Public OHTTP relays go offline or rate-limit us                                      | Medium                           | Medium | Ordered fallback across three relays; if all fail → v2 fallback to fallback.                                                                                                                               |
+| Malicious receiver exploits edge case in PDK validation                              | Low                              | High   | `proposal-validator.ts` defense-in-depth; lookahead-aware `wallet.is_mine()` check; change-delta cap; sighash/derivation/script preservation asserts; telemetry surfaces `fallback_validation` for review. |
+| Receiver CORS breakage on v1                                                         | High (spec compliance is spotty) | Low    | Always proxy through `/api/payjoin-proxy`; never direct fetch.                                                                                                                                             |
+| Proxy abused as open relay                                                           | Medium                           | Medium | Host + content-type + body-size allowlists; rate limit per IP.                                                                                                                                             |
+| User sees occasional ~3s latency bump (v2 fallback) with no explanation              | Medium                           | Low    | `localStorage` debug flag for power users; silent UX for everyone else. Accepted tradeoff from brainstorm.                                                                                                 |
+| `pj=` endpoint injects `Set-Cookie` or other unwanted side effects through the proxy | Low                              | Low    | Proxy strips all set-cookie headers; only `content-type` forwarded.                                                                                                                                        |
+| BDK staged-change drift between estimate build and PSBT build                        | Medium                           | Medium | Covered by existing `discardStagedChanges` pattern at `src/onchain/context.tsx:165`.                                                                                                                       |
+| Supply-chain attack via vendored PDK WASM                                            | Low                              | High   | SHA-256 manifest checked into repo; CI verifies fresh build matches.                                                                                                                                       |
 
 ## Resource Requirements
 
@@ -717,6 +722,7 @@ Synthesized from 9 parallel reviewers/researchers. Findings below apply across s
 **HIGH — direct-fetch prevention.** Assert no code path reaches `pj=` endpoints directly. Add an eslint `no-restricted-syntax` rule forbidding `fetch(` under `src/onchain/payjoin/`. PDK may support a custom `http_client`; pass ours, not its default.
 
 **HIGH — additional PSBT validation** (beyond PDK's BIP 78 checklist):
+
 - Sighash flags preserved on every sender input.
 - Non-witness UTXO stripped on segwit inputs in proposal (CVE-2020-14199-class).
 - BIP32 derivation paths byte-equal to original on sender inputs.
@@ -750,8 +756,8 @@ Zinqq is BIP84 P2WPKH-only (verified in `src/wallet/keys.ts:67-82`). This narrow
 **The `abortSignal.aborted` check is TOCTOU**. Between check and `wallet.sign`, fallback broadcast may complete. Replace with an atomic single-writer claim:
 
 ```typescript
-const outcome = { kind: 'pending' as 'pending'|'payjoin'|'fallback' }
-const claim = (next: 'payjoin'|'fallback') => {
+const outcome = { kind: 'pending' as 'pending' | 'payjoin' | 'fallback' }
+const claim = (next: 'payjoin' | 'fallback') => {
   if (outcome.kind !== 'pending') throw new AbortError('already ' + outcome.kind)
   outcome.kind = next
 }
@@ -760,17 +766,20 @@ const claim = (next: 'payjoin'|'fallback') => {
 
 **Single-aborter pattern** for visibility + timeout + user-cancel + unmount — all feed one `AbortController`, first reason wins via `signal.reason`. Use `AbortSignal.any([userSig, timeoutSig, visibilitySig, unmountSig])` — Safari < 17.4 needs a 12-line polyfill; do not pull `abort-controller-x`.
 
-**`uniffiInitAsync()` idempotency is not guaranteed** across uniffi-rs generations. Memoise the init Promise *inside* the same `loadPdk` Promise, not separately.
+**`uniffiInitAsync()` idempotency is not guaranteed** across uniffi-rs generations. Memoise the init Promise _inside_ the same `loadPdk` Promise, not separately.
 
 **No nested `buildSignBroadcast` on fallback.** The plan's `finalizeAndBroadcast(tx)` extraction is correct and MUST be the only broadcast path — calling the full `buildSignBroadcast` from the Payjoin path's fallback branch double-pauses the sync handle. Make this a hard invariant.
 
 **v2 poll cadence**: recursive self-scheduling `setTimeout` with exponential backoff 1s → 5s, abort-aware `sleep`. No `setInterval`. Explicit in the plan:
 
 ```typescript
-let delay = 1000, cap = 5000
+let delay = 1000,
+  cap = 5000
 while (!signal.aborted) {
-  const r = await fetchDirectory(signal); if (r.proposal) return r.proposal
-  await sleep(delay, signal); delay = Math.min(delay * 1.5, cap)
+  const r = await fetchDirectory(signal)
+  if (r.proposal) return r.proposal
+  await sleep(delay, signal)
+  delay = Math.min(delay * 1.5, cap)
 }
 signal.throwIfAborted()
 ```
@@ -793,7 +802,7 @@ buildSignBroadcast(
 
 Payjoin passes `transformPsbt`; normal send omits it. `MAX_FEE_SATS` sanity check runs automatically on the transformed PSBT. Fallback is `transformPsbt` returning the original unsigned PSBT on throw. Zero duplication.
 
-**HIGH — runtime feature flag / kill switch.** `localStorage.zinqq_payjoin_disabled=1` (checked *before* the dynamic import). No PDK load when disabled. Incident-response tool; cached service workers delay a code revert by hours, a flag is immediate.
+**HIGH — runtime feature flag / kill switch.** `localStorage.zinqq_payjoin_disabled=1` (checked _before_ the dynamic import). No PDK load when disabled. Incident-response tool; cached service workers delay a code revert by hours, a flag is immediate.
 
 **MEDIUM — hoist constants to `src/onchain/config.ts`.** `MIN_FEE_RATE_SAT_VB` and `MAX_FEE_SATS` currently live privately in `context.tsx:31`. Dependency direction should point from provider to children, not reverse. `config.ts` already exports `ONCHAIN_CONFIG` — natural home.
 
@@ -824,14 +833,14 @@ export const FALLBACK_REASONS = {
   backgrounded: 'backgrounded',
   unknown: 'unknown',
 } as const satisfies Record<string, string>
-export type FallbackReason = typeof FALLBACK_REASONS[keyof typeof FALLBACK_REASONS]
+export type FallbackReason = (typeof FALLBACK_REASONS)[keyof typeof FALLBACK_REASONS]
 ```
 
 2. Narrow `PayjoinSenderApi` interface in `pdk-loader.ts` — expose only what Zinqq uses (`SenderBuilder`, `parseUri`, selected error classes). Prevents ambient PDK types from leaking; makes `vi.mock('./pdk-loader', () => ({ loadPdk: vi.fn() }))` a one-liner.
 
 3. Proxy handler signature: `export async function POST(request: Request): Promise<Response>` — match `api/lnurl-proxy.ts`. Not the Express-style `(req, res)` in the initial plan snippet.
 
-**Clarifying addition**: document in Components §2 that `outcome: 'fallback'` is a *successful* return, not an error — must NOT route through `mapSendError`. Only genuinely unrecoverable states (invalid original PSBT) `throw` out of `tryPayjoinSend`.
+**Clarifying addition**: document in Components §2 that `outcome: 'fallback'` is a _successful_ return, not an error — must NOT route through `mapSendError`. Only genuinely unrecoverable states (invalid original PSBT) `throw` out of `tryPayjoinSend`.
 
 **AbortSignal ownership**: `Send.tsx:handleOcConfirm` owns a `controllerRef = useRef<AbortController | null>(null)`; `beforeunload` + `visibilitychange` listeners abort it; `tryPayjoinSend` internally composes via `AbortSignal.any([signal, AbortSignal.timeout(15_000)])` (v1) or `timeout(45_000)` (v2). Existing precedent: `src/ldk/sync/esplora-client.ts:100`.
 
@@ -840,6 +849,7 @@ export type FallbackReason = typeof FALLBACK_REASONS[keyof typeof FALLBACK_REASO
 **Bundle budget realistic with aggressive gating**: compile `payjoin-ffi --no-default-features --features send,v1,v2` (drop `receive`, `danger-local-https`, directory, relay features). Add `wasm-opt -Oz -g0`. Realistic target: 900 KB – 1.1 MB gzip. Near-miss → code-split v1 vs v2 (v1 URIs typically don't need HPKE), saves ~300 KB for v1-only sends.
 
 **Cold start optimizations**:
+
 - Use `WebAssembly.compileStreaming(fetch(...))`, not `new WebAssembly.Module(await (await fetch()).arrayBuffer())` — halves compile time.
 - Content-hashed WASM filename (Vite default) so bumping vendored SHA yields a new URL; otherwise SW serves stale WASM after update.
 - `Cache-Control: public, max-age=31536000, immutable` — already planned.
@@ -860,16 +870,16 @@ export type FallbackReason = typeof FALLBACK_REASONS[keyof typeof FALLBACK_REASO
 
 Codebase-specific conventions to honor:
 
-| Convention | Required change |
-|---|---|
-| Test files are sibling `*.test.ts` | Drop `__tests__/` subdir |
-| File naming: noun-role (`bolt11-encoder.ts`) | Rename `validate.ts` → `proposal-validator.ts` |
-| Proxy handler: Web `Request`/`Response` | Align `payjoin-proxy.ts` with `esplora-proxy.ts` pattern |
-| Proxy param: `_path` | Use `_path` not `_url` |
-| Constants: `src/onchain/config.ts` | Hoist `MIN_FEE_RATE_SAT_VB`, `MAX_FEE_SATS` |
-| Error log: `captureError` | Wire Payjoin events through it, not a new module |
-| `ParsedPaymentInput` extension | Optional sub-field on `onchain` variant is the right call; diverge intentionally from "new variant" precedent (avoids call-site explosion) |
-| WASM: dynamic vs eager | PDK is justified divergence — explicitly note in plan |
+| Convention                                   | Required change                                                                                                                            |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Test files are sibling `*.test.ts`           | Drop `__tests__/` subdir                                                                                                                   |
+| File naming: noun-role (`bolt11-encoder.ts`) | Rename `validate.ts` → `proposal-validator.ts`                                                                                             |
+| Proxy handler: Web `Request`/`Response`      | Align `payjoin-proxy.ts` with `esplora-proxy.ts` pattern                                                                                   |
+| Proxy param: `_path`                         | Use `_path` not `_url`                                                                                                                     |
+| Constants: `src/onchain/config.ts`           | Hoist `MIN_FEE_RATE_SAT_VB`, `MAX_FEE_SATS`                                                                                                |
+| Error log: `captureError`                    | Wire Payjoin events through it, not a new module                                                                                           |
+| `ParsedPaymentInput` extension               | Optional sub-field on `onchain` variant is the right call; diverge intentionally from "new variant" precedent (avoids call-site explosion) |
+| WASM: dynamic vs eager                       | PDK is justified divergence — explicitly note in plan                                                                                      |
 
 ### Simplicity (from code-simplicity-reviewer)
 
@@ -889,6 +899,7 @@ Trim over-engineering:
 **First, verify:** `npm view payjoin versions dist-tags` before Phase 3. Research found credible signal that `payjoin` is published on npm; if the published artifact covers the WASM target, skip vendoring entirely.
 
 **If vendoring needed:**
+
 - `rustwasm` working group archived July 2025. Use `wasm-bindgen-cli` + `cargo build --target wasm32-unknown-unknown` + `wasm-opt` directly. `wasm-pack` is no longer preferred.
 - Reproducibility requires: `rust-toolchain.toml` pin, `wasm-bindgen-cli` version match with `wasm-bindgen` crate, `wasm-opt` version pin, `RUSTFLAGS` scrubbed, `SOURCE_DATE_EPOCH` set, `--remap-path-prefix` for filesystem paths, `cargo --locked --frozen` with committed `Cargo.lock`.
 - **Attestation**: use GitHub Actions `actions/attest-build-provenance` (works for any artifact, produces Sigstore bundle). `npm provenance` doesn't help since we wouldn't be publishing to npm.
@@ -907,20 +918,20 @@ Trim over-engineering:
 
 Claims in the initial plan cross-checked against the codebase:
 
-| Claim | Status | Correction |
-|---|---|---|
-| Tests live as sibling `*.test.ts` | CONFIRMED | Plan had `__tests__/` — fixed |
-| `MIN_FEE_RATE_SAT_VB` at context.tsx:186-190 | REFUTED | Actually line 31, not exported |
-| Existing telemetry/analytics layer | REFUTED | None exists — route through `captureError` |
-| LDK/BDK WASM eager-loaded | CONFIRMED | PDK dynamic import is justified divergence |
-| `src/onchain/` flat w/ subdirs | CONFIRMED | Only `storage/`; `payjoin/` consistent |
-| `vercel.json` has no CSP | CONFIRMED | Plan's CSP addition is net-new |
-| `api/lnurl-proxy.ts` is GET-only, uses `_path` | CONFIRMED | Plan had Express shape + `_url` — both corrected |
-| `discardStagedChanges` at context.tsx:55-57 | CONFIRMED | Used at lines 165, 196 |
-| `ParsedPaymentInput` extension precedent | REFUTED | Type stable ~6 months; adding optional field is precedent-breaking but justified |
-| Esplora semaphore | CONFIRMED | `src/ldk/sync/esplora-client.ts:19-40`, max=2 |
-| `mapSendError` taxonomy | CONFIRMED | context.tsx:59-76, 4-class taxonomy |
-| AbortController in send flow | REFUTED | Plan introduces it for the first time in send flow |
+| Claim                                          | Status    | Correction                                                                       |
+| ---------------------------------------------- | --------- | -------------------------------------------------------------------------------- |
+| Tests live as sibling `*.test.ts`              | CONFIRMED | Plan had `__tests__/` — fixed                                                    |
+| `MIN_FEE_RATE_SAT_VB` at context.tsx:186-190   | REFUTED   | Actually line 31, not exported                                                   |
+| Existing telemetry/analytics layer             | REFUTED   | None exists — route through `captureError`                                       |
+| LDK/BDK WASM eager-loaded                      | CONFIRMED | PDK dynamic import is justified divergence                                       |
+| `src/onchain/` flat w/ subdirs                 | CONFIRMED | Only `storage/`; `payjoin/` consistent                                           |
+| `vercel.json` has no CSP                       | CONFIRMED | Plan's CSP addition is net-new                                                   |
+| `api/lnurl-proxy.ts` is GET-only, uses `_path` | CONFIRMED | Plan had Express shape + `_url` — both corrected                                 |
+| `discardStagedChanges` at context.tsx:55-57    | CONFIRMED | Used at lines 165, 196                                                           |
+| `ParsedPaymentInput` extension precedent       | REFUTED   | Type stable ~6 months; adding optional field is precedent-breaking but justified |
+| Esplora semaphore                              | CONFIRMED | `src/ldk/sync/esplora-client.ts:19-40`, max=2                                    |
+| `mapSendError` taxonomy                        | CONFIRMED | context.tsx:59-76, 4-class taxonomy                                              |
+| AbortController in send flow                   | REFUTED   | Plan introduces it for the first time in send flow                               |
 
 ## Sources & References
 

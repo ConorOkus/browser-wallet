@@ -1,7 +1,7 @@
 ---
 status: complete
 priority: p2
-issue_id: "216"
+issue_id: '216'
 tags: [code-review, security, payjoin]
 dependencies: []
 ---
@@ -59,7 +59,10 @@ while (true) {
 }
 const body = new Uint8Array(total)
 let offset = 0
-for (const c of chunks) { body.set(c, offset); offset += c.length }
+for (const c of chunks) {
+  body.set(c, offset)
+  offset += c.length
+}
 ```
 
 **Pros:** Eliminates amplification; removes redundant pre-read.
@@ -83,6 +86,7 @@ _To be filled during triage._ Option 1 for security; Option 2 if simplicity revi
 ## Technical Details
 
 **Affected files:**
+
 - `api/payjoin-proxy.ts:132-144`
 - `api/payjoin-proxy.test.ts` (new test: declared CL ≪ actual body → 413)
 

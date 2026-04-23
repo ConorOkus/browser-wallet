@@ -82,8 +82,7 @@ function payjoinCorsProxy(): Plugin {
         const contentType = req.headers['content-type'] ?? ''
         if (
           typeof contentType !== 'string' ||
-          (!contentType.startsWith('text/plain') &&
-            !contentType.startsWith('message/ohttp-req'))
+          (!contentType.startsWith('text/plain') && !contentType.startsWith('message/ohttp-req'))
         ) {
           res.statusCode = 415
           res.end('unsupported content-type')

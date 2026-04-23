@@ -1,7 +1,7 @@
 ---
 status: complete
 priority: p2
-issue_id: "215"
+issue_id: '215'
 tags: [code-review, payjoin, dead-code, simplicity]
 dependencies: []
 ---
@@ -54,6 +54,7 @@ _To be filled during triage._ Likely Option 1.
 ## Technical Details
 
 **Affected files:**
+
 - `api/payjoin-proxy.ts:25-30, 120-125`
 - `api/payjoin-proxy.test.ts` (may reference V2_HOSTS; check)
 

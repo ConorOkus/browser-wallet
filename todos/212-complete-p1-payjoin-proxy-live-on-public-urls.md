@@ -1,7 +1,7 @@
 ---
 status: complete
 priority: p1
-issue_id: "212"
+issue_id: '212'
 tags: [code-review, security, payjoin, abuse, production]
 dependencies: []
 ---
@@ -64,6 +64,7 @@ _To be filled during triage._ Likely Option 1 for fastest safe merge; KV follows
 ## Technical Details
 
 **Affected files:**
+
 - `api/payjoin-proxy.ts` (early-return guard)
 - `.env.example` (document `PAYJOIN_PROXY_ENABLED`)
 
@@ -86,6 +87,7 @@ _To be filled during triage._ Likely Option 1 for fastest safe merge; KV follows
 **By:** Claude Code (ce:review)
 
 **Actions:**
+
 - security-sentinel flagged in-memory rate limit as per-edge-region ineffective
 - architecture-strategist flagged live-path exposure
 - Consolidated into this P1 with options

@@ -194,9 +194,7 @@ describe('classifyPaymentInput — BIP 321 Payjoin (pj= / pjos=)', () => {
 
   it('marks strict=true when pjos=0', async () => {
     const { classifyPaymentInput } = await import('./payment-input')
-    const result = classifyPaymentInput(
-      `bitcoin:${ADDR}?pj=https://btcpay.example/p&pjos=0`
-    )
+    const result = classifyPaymentInput(`bitcoin:${ADDR}?pj=https://btcpay.example/p&pjos=0`)
     expect(result.type).toBe('onchain')
     if (result.type === 'onchain') {
       expect(result.payjoin?.strict).toBe(true)

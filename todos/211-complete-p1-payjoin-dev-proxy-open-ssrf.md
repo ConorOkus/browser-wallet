@@ -1,7 +1,7 @@
 ---
 status: complete
 priority: p1
-issue_id: "211"
+issue_id: '211'
 tags: [code-review, security, payjoin, ssrf, dev-only]
 dependencies: []
 ---
@@ -60,6 +60,7 @@ _To be filled during triage._ Likely Option 1.
 ## Technical Details
 
 **Affected files:**
+
 - `vite.config.ts:58-138` (dev proxy plugin)
 - `api/payjoin-proxy.ts:56-92` (existing helpers to reuse)
 
@@ -83,6 +84,7 @@ _To be filled during triage._ Likely Option 1.
 **By:** Claude Code (ce:review)
 
 **Actions:**
+
 - Ran security-sentinel on shipped Phase 1 code
 - Identified dev proxy SSRF gap vs prod proxy
 - Filed this todo

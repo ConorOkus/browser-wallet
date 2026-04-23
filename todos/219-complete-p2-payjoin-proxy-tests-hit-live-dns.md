@@ -1,7 +1,7 @@
 ---
 status: complete
 priority: p2
-issue_id: "219"
+issue_id: '219'
 tags: [code-review, testing, payjoin, hygiene]
 dependencies: []
 ---
@@ -16,6 +16,7 @@ dependencies: []
 - `payjo.in/abc/def` — hits real Payjoin directory (404 on random session)
 
 Problems:
+
 1. **CI flake vector**: DNS / network dependencies make tests non-deterministic.
 2. **Slow CI**: 20s timeout × N test runs = significant wall time.
 3. **`VALIDATION_REJECTS` heuristic is weak**: the test asserts the response status is NOT in `{400, 405, 413, 415, 429}`. Any upstream server that coincidentally returns one of those passes the test falsely.
@@ -35,14 +36,15 @@ Problems:
 **Approach:** Stub `globalThis.fetch` in the two live-network tests; assert `fetch` was called with the expected URL + headers. Add positive-signal assertions instead of double-negative `!VALIDATION_REJECTS.has(status)`.
 
 ```ts
-const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-  new Response('ok', { status: 200 })
-)
+const fetchSpy = vi
+  .spyOn(globalThis, 'fetch')
+  .mockResolvedValue(new Response('ok', { status: 200 }))
 // ...
 expect(fetchSpy).toHaveBeenCalledWith('https://btcpay.example/payjoin/x', expect.any(Object))
 ```
 
 Also add:
+
 - Rate-limit 429 test (call >= 60 times in < 60s)
 - 502 timeout test (mock fetch that rejects with DOMException 'TimeoutError')
 
@@ -67,6 +69,7 @@ _To be filled during triage._ Likely Option 1.
 ## Technical Details
 
 **Affected files:**
+
 - `api/payjoin-proxy.test.ts:133-173` (rewrite with mocks)
 - Add tests for: 429 rate limit, 502 timeout, POST-method-only rejection (handlers accept only POST today; add explicit test).
 

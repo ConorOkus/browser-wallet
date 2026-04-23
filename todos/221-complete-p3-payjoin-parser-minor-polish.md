@@ -1,7 +1,7 @@
 ---
 status: complete
 priority: p3
-issue_id: "221"
+issue_id: '221'
 tags: [code-review, payjoin, polish]
 dependencies: []
 ---
@@ -50,6 +50,7 @@ Several small items flagged across reviewers that don't warrant separate todos i
 ## Proposed Solution
 
 **Batch polish pass.** One small PR that:
+
 - Aligns `< 2048` / `> 2048` boundary.
 - Simplifies or comments the conditional spread.
 - Adds Vercel-trust comment.
@@ -65,6 +66,7 @@ _To be filled during triage._
 ## Technical Details
 
 **Affected files:**
+
 - `src/ldk/payment-input.ts`
 - `api/payjoin-proxy.ts`
 

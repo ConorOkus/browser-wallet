@@ -1,7 +1,7 @@
 ---
 status: complete
 priority: p2
-issue_id: "217"
+issue_id: '217'
 tags: [code-review, security, csp, payjoin]
 dependencies: []
 ---
@@ -30,6 +30,7 @@ dependencies: []
 ### Option 1: Add missing directives + Report-Only canary (Recommended)
 
 **Approach:**
+
 1. Add `object-src 'none'; manifest-src 'self'; frame-src 'none'` to the CSP.
 2. Deploy with `Content-Security-Policy-Report-Only` header (same value) for 48 hours first.
 3. Monitor preview + early prod for violations; fix before promoting to enforcing `Content-Security-Policy`.
@@ -64,6 +65,7 @@ _To be filled during triage._ Option 2 is pragmatic; Option 1 is ideal but may b
 ## Technical Details
 
 **Affected files:**
+
 - `vercel.json` (CSP header)
 - Manual test plan on preview deploy
 
