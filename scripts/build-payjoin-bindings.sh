@@ -27,9 +27,14 @@ if ! command -v wasm-bindgen >/dev/null \
   cargo install --locked wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION"
 fi
 
-rustup target add wasm32-unknown-unknown
-
 cd "$BINDINGS_DIR"
+
+# IMPORTANT: `rustup target add` must run from inside the submodule.
+# `vendor/rust-payjoin/rust-toolchain.toml` pins the nightly channel, and
+# rustup only applies toolchain overrides based on cwd. Running this from
+# the repo root would add wasm32 to stable and leave nightly (the active
+# toolchain at build time) without the target, yielding E0463 later.
+rustup target add wasm32-unknown-unknown
 
 npm ci --ignore-scripts
 
