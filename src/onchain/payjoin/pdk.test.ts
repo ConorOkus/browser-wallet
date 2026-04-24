@@ -17,24 +17,16 @@ beforeEach(() => {
 
 describe('loadPdk', () => {
   it('resolves with the payjoin namespace after uniffiInitAsync', async () => {
-    const { loadPdk } = await import('./payjoin')
+    const { loadPdk } = await import('./pdk')
     const pdk = await loadPdk()
     expect(pdk).toBe(mockPayjoin)
     expect(uniffiInitAsync).toHaveBeenCalledTimes(1)
   })
 
   it('memoises — repeat calls share one init', async () => {
-    const { loadPdk } = await import('./payjoin')
+    const { loadPdk } = await import('./pdk')
     const [a, b] = await Promise.all([loadPdk(), loadPdk()])
     expect(a).toBe(b)
     expect(uniffiInitAsync).toHaveBeenCalledTimes(1)
-  })
-
-  it('allows retry after a failed init', async () => {
-    uniffiInitAsync.mockRejectedValueOnce(new Error('boom'))
-    const { loadPdk } = await import('./payjoin')
-    await expect(loadPdk()).rejects.toThrow('boom')
-    uniffiInitAsync.mockResolvedValueOnce(undefined)
-    await expect(loadPdk()).resolves.toBe(mockPayjoin)
   })
 })

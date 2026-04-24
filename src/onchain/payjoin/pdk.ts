@@ -10,9 +10,6 @@ export function loadPdk(): Promise<Pdk> {
     const mod = await import('payjoin')
     await mod.uniffiInitAsync()
     return mod.payjoin
-  })().catch((err) => {
-    pdkPromise = null
-    throw err
-  })
+  })()
   return pdkPromise
 }
