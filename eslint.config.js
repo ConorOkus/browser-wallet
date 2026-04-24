@@ -7,7 +7,7 @@ import jsxA11y from 'eslint-plugin-jsx-a11y'
 import prettierConfig from 'eslint-config-prettier'
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'proxy/**', 'design/**', 'api/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'proxy/**', 'design/**', 'api/**', 'vendor/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
