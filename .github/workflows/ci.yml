@@ -30,25 +30,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vendor/rust-payjoin/payjoin-ffi/javascript/dist
-          key: payjoin-dist-${{ steps.payjoin-sha.outputs.sha }}-${{ hashFiles('vendor/rust-payjoin/payjoin-ffi/javascript/scripts/generate_bindings.sh', 'vendor/rust-payjoin/payjoin-ffi/javascript/package-lock.json') }}
-
-      - name: Add wasm32 target
-        if: steps.dist-cache.outputs.cache-hit != 'true'
-        run: rustup target add wasm32-unknown-unknown
+          key: payjoin-dist-${{ steps.payjoin-sha.outputs.sha }}-${{ hashFiles('scripts/build-payjoin-bindings.sh', 'vendor/rust-payjoin/payjoin-ffi/javascript/package-lock.json') }}
 
       - name: Cache cargo bin
-        if: steps.dist-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin/wasm-bindgen
           key: wasm-bindgen-cli-0.2.108
-
-      - name: Install wasm-bindgen-cli
-        if: steps.dist-cache.outputs.cache-hit != 'true'
-        run: |
-          if ! command -v wasm-bindgen >/dev/null; then
-            cargo install -f wasm-bindgen-cli --version 0.2.108 --locked
-          fi
 
       - name: Cache rust build
         if: steps.dist-cache.outputs.cache-hit != 'true'
@@ -58,14 +46,11 @@ jobs:
             vendor/rust-payjoin/target
             vendor/rust-payjoin/payjoin-ffi/javascript/src/generated
             vendor/rust-payjoin/payjoin-ffi/javascript/node_modules
-          key: payjoin-rust-${{ steps.payjoin-sha.outputs.sha }}-${{ hashFiles('vendor/rust-payjoin/payjoin-ffi/javascript/scripts/generate_bindings.sh', 'vendor/rust-payjoin/payjoin-ffi/javascript/package-lock.json') }}
+          key: payjoin-rust-${{ steps.payjoin-sha.outputs.sha }}-${{ hashFiles('scripts/build-payjoin-bindings.sh', 'vendor/rust-payjoin/payjoin-ffi/javascript/package-lock.json') }}
 
       - name: Build Payjoin bindings
         if: steps.dist-cache.outputs.cache-hit != 'true'
-        run: |
-          cd vendor/rust-payjoin/payjoin-ffi/javascript
-          npm ci --ignore-scripts
-          bash ./scripts/generate_bindings.sh
+        run: bash scripts/build-payjoin-bindings.sh
 
       - name: Upload Payjoin dist artifact
         uses: actions/upload-artifact@v4
@@ -78,6 +63,8 @@ jobs:
     needs: payjoin-build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
