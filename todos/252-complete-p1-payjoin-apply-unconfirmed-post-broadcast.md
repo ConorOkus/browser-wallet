@@ -20,8 +20,8 @@ If step 2 throws, the outer `catch (err)` at line 278 maps the error and re-thro
 
 ## Findings
 
-- **security-sentinel P2-3** (escalated to P1 — user-facing fund-related UX inconsistency): on next sync the wallet will rediscover the tx, but the "Try Again" button at `Send.tsx:856-857` builds a *new* PSBT from the same UTXOs. Until the next BDK sync (default `syncIntervalMs: 180_000`), the wallet has no record of the spend.
-- The retry build would normally fail at broadcast (mempool rejects double-spend), but the failure UX is poor. On a wallet with multiple available UTXOs, the second build could pick *different* inputs and succeed — leading to two independent broadcasts.
+- **security-sentinel P2-3** (escalated to P1 — user-facing fund-related UX inconsistency): on next sync the wallet will rediscover the tx, but the "Try Again" button at `Send.tsx:856-857` builds a _new_ PSBT from the same UTXOs. Until the next BDK sync (default `syncIntervalMs: 180_000`), the wallet has no record of the spend.
+- The retry build would normally fail at broadcast (mempool rejects double-spend), but the failure UX is poor. On a wallet with multiple available UTXOs, the second build could pick _different_ inputs and succeed — leading to two independent broadcasts.
 - This is a Payjoin-specific concern: the non-Payjoin path's `wallet.sign(psbt)` already stages BDK's view correctly; only the Payjoin path needs explicit `apply_unconfirmed_txs`.
 
 ## Proposed Solutions
@@ -33,9 +33,7 @@ await esplora.broadcast(tx)
 
 if (wasTransformed) {
   try {
-    wallet.apply_unconfirmed_txs([
-      new UnconfirmedTx(tx, BigInt(Math.floor(Date.now() / 1000))),
-    ])
+    wallet.apply_unconfirmed_txs([new UnconfirmedTx(tx, BigInt(Math.floor(Date.now() / 1000)))])
   } catch (err) {
     captureError(
       'error',

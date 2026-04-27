@@ -10,14 +10,14 @@ dependencies: []
 
 ## Problem Statement
 
-PDK's `SenderBuilder::new(psbt, uri)` (`vendor/rust-payjoin/payjoin-ffi/src/send/mod.rs:277`) takes only the PSBT and URI — there is **no `is_mine` callback** plumbed through. PDK's BIP 78 checklist verifies "no original sender input is missing" but cannot verify "no proposal input is *also* mine" without the wallet's UTXO set.
+PDK's `SenderBuilder::new(psbt, uri)` (`vendor/rust-payjoin/payjoin-ffi/src/send/mod.rs:277`) takes only the PSBT and URI — there is **no `is_mine` callback** plumbed through. PDK's BIP 78 checklist verifies "no original sender input is missing" but cannot verify "no proposal input is _also_ mine" without the wallet's UTXO set.
 
-`validateProposal` only iterates `original.input` for preservation (lines 49-58) — it never checks proposal-side inputs against `wallet.is_mine` for the *input* scriptPubKeys. If the receiver lists a sender-owned UTXO (e.g., a small unspent change output not selected for this tx) as one of "their" contributions and assigns its value to a receiver-only output, BDK's `wallet.sign` at `context.tsx:240` will sign that input because the descriptor matches.
+`validateProposal` only iterates `original.input` for preservation (lines 49-58) — it never checks proposal-side inputs against `wallet.is_mine` for the _input_ scriptPubKeys. If the receiver lists a sender-owned UTXO (e.g., a small unspent change output not selected for this tx) as one of "their" contributions and assigns its value to a receiver-only output, BDK's `wallet.sign` at `context.tsx:240` will sign that input because the descriptor matches.
 
 ## Findings
 
 - **security-sentinel P2-1** (which I'm escalating to P1 due to fund-loss vector): the grafted UTXO's value is redirected to a receiver-only output; the validator never iterates `proposal.output` for new outputs (only loops `original.output` for preservation). Net result: sender pays a much larger amount than they intended. Bounded by the size of the smallest sender-owned UTXO the receiver can identify.
-- The fee-cap (`originalFee + originalFeeRate*110`, line 61-66) does **not** bound this — it bounds *fee*, not *value*.
+- The fee-cap (`originalFee + originalFeeRate*110`, line 61-66) does **not** bound this — it bounds _fee_, not _value_.
 - **Practical exploit difficulty**: receiver must learn one of the sender's other UTXOs (e.g., from prior on-chain tx history if the sender has reused an address or sent on-chain to the receiver before). Self-custodial wallets with address reuse hygiene are partially protected, but Zinqq has no enforced reuse prevention.
 
 ## Proposed Solutions
@@ -28,9 +28,7 @@ Add to `validateProposal`:
 
 ```ts
 // (a) Receiver-added inputs must not be ours.
-const origOutpointKeys = new Set(
-  original.input.map((i) => i.previous_output.toString())
-)
+const origOutpointKeys = new Set(original.input.map((i) => i.previous_output.toString()))
 for (const inp of proposal.input) {
   if (origOutpointKeys.has(inp.previous_output.toString())) continue
   // PSBT input witness_utxo isn't exposed in BDK TS — best we can do

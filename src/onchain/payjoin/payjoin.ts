@@ -43,12 +43,11 @@ type FallbackReason =
 const VALIDATION_REASONS = new Set<FallbackReason>(['validation'])
 
 export class PayjoinFallback extends Error {
-  constructor(
-    public readonly reason: FallbackReason,
-    message: string
-  ) {
+  readonly reason: FallbackReason
+  constructor(reason: FallbackReason, message: string) {
     super(message)
     this.name = 'PayjoinFallback'
+    this.reason = reason
   }
 }
 

@@ -27,7 +27,7 @@ Before `loadPdk()`:
 
 ```ts
 if (unsigned.unsigned_tx.input.length < 2) {
-  return unsigned  // or { kind: 'declined' } if todo #255 lands first
+  return unsigned // or { kind: 'declined' } if todo #255 lands first
 }
 ```
 

@@ -10,7 +10,7 @@ dependencies: []
 
 ## Problem Statement
 
-`payjoin.ts:97` writes the *full* `err.message` from PDK / fetch / Psbt parse to the local IndexedDB error log:
+`payjoin.ts:97` writes the _full_ `err.message` from PDK / fetch / Psbt parse to the local IndexedDB error log:
 
 ```ts
 captureError('warning', 'Payjoin', bucket, detail ?? reason)

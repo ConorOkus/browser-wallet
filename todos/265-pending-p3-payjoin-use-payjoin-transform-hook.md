@@ -12,7 +12,7 @@ dependencies: []
 
 `Send.tsx:594-650` (`handleOcConfirm`) now manages: send branching (sendMax / payjoin / plain), the `payjoinAbort` controller, two DOM event listeners (`visibilitychange` + `beforeunload`), `sendingRef` reentrancy, the `transformPsbt` closure builder, and listener teardown. ~50 lines of bookkeeping is a lot for a page component.
 
-Subtle bug: if the user navigates *away* from the Send page mid-Payjoin, `sendingRef` and the listeners are bound to the closure, but the page is unmounting. The `finally` block only fires when the promise settles. In the meantime a backgrounded send keeps event listeners alive on a dead component.
+Subtle bug: if the user navigates _away_ from the Send page mid-Payjoin, `sendingRef` and the listeners are bound to the closure, but the page is unmounting. The `finally` block only fires when the promise settles. In the meantime a backgrounded send keeps event listeners alive on a dead component.
 
 ## Findings
 

@@ -24,7 +24,7 @@ The poll loop at line 235 correctly does:
 ctx.signal.aborted ? 'backgrounded' : 'timeout'
 ```
 
-If the composed (45s session ceiling) timer fires *during* the initial POST — rare but possible if PDK is slow to construct the request, or if the relay holds the connection — it gets misclassified as `backgrounded` even though the parent never aborted.
+If the composed (45s session ceiling) timer fires _during_ the initial POST — rare but possible if PDK is slow to construct the request, or if the relay holds the connection — it gets misclassified as `backgrounded` even though the parent never aborted.
 
 ## Findings
 

@@ -26,12 +26,12 @@ But PDK doesn't promise identity preservation. If a future PDK version returns a
 ```ts
 // onchain-context.ts
 export type TransformPsbtResult =
-  | { kind: 'declined' }                  // sign original, no foreign-built reapply
-  | { kind: 'transformed'; psbt: Psbt }   // sign this, foreign-built — reapply
+  | { kind: 'declined' } // sign original, no foreign-built reapply
+  | { kind: 'transformed'; psbt: Psbt } // sign this, foreign-built — reapply
 
 export type TransformPsbtHook = (
   unsigned: Psbt,
-  ctx: { wallet: Wallet; feeRate: bigint }  // signal removed per todo #253
+  ctx: { wallet: Wallet; feeRate: bigint } // signal removed per todo #253
 ) => Promise<TransformPsbtResult>
 ```
 

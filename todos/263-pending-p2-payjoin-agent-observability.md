@@ -12,7 +12,7 @@ dependencies: []
 
 Two related agent-native gaps:
 
-1. `validateProposal` returns `{ ok: false, reason: '<specific failure>' }` (e.g., `'sender input dropped'`, `'recipient amount decreased'`). At `payjoin.ts:259` the reason is folded into `PayjoinFallback`'s `message`, but `.message` is conventionally for human display while `.reason` is for programmatic dispatch. Test harnesses can read `.reason === 'validation'` but cannot programmatically distinguish the *specific* validator failure.
+1. `validateProposal` returns `{ ok: false, reason: '<specific failure>' }` (e.g., `'sender input dropped'`, `'recipient amount decreased'`). At `payjoin.ts:259` the reason is folded into `PayjoinFallback`'s `message`, but `.message` is conventionally for human display while `.reason` is for programmatic dispatch. Test harnesses can read `.reason === 'validation'` but cannot programmatically distinguish the _specific_ validator failure.
 
 2. `captureError` writes to `ldk_error_log` in IndexedDB but `src/storage/error-log.ts` exports no read API. To verify "did the Payjoin succeed bucket fire?" an agent must reach into `idbGetAll('ldk_error_log')` directly. This is the primary agent-native gap.
 
@@ -33,7 +33,7 @@ export class PayjoinFallback extends Error {
   constructor(
     public readonly reason: FallbackReason,
     message: string,
-    public readonly validationReason?: string  // populated when reason === 'validation'
+    public readonly validationReason?: string // populated when reason === 'validation'
   ) {
     super(message)
     this.name = 'PayjoinFallback'

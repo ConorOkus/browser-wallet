@@ -10,7 +10,7 @@ dependencies: []
 
 ## Problem Statement
 
-The plan (`docs/plans/2026-04-23-001-feat-payjoin-send-support-plan.md`) called for several items that were deferred in PR #143. The PR description mentions some, but the *source code* doesn't enumerate what was deferred and why. Future maintainers re-deriving the gap is wasted time.
+The plan (`docs/plans/2026-04-23-001-feat-payjoin-send-support-plan.md`) called for several items that were deferred in PR #143. The PR description mentions some, but the _source code_ doesn't enumerate what was deferred and why. Future maintainers re-deriving the gap is wasted time.
 
 Deferred items that should be visible at the call site:
 

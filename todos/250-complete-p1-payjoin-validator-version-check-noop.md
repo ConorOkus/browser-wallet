@@ -29,7 +29,9 @@ The docstring (line 33) also claims "tx version + locktime preserved" but the fu
 if (ctx.proposal.version !== ctx.original.version) {
   return { ok: false, reason: 'tx version changed' }
 }
-if (ctx.proposal.unsigned_tx.lock_time?.toString() !== ctx.original.unsigned_tx.lock_time?.toString()) {
+if (
+  ctx.proposal.unsigned_tx.lock_time?.toString() !== ctx.original.unsigned_tx.lock_time?.toString()
+) {
   return { ok: false, reason: 'locktime changed' }
 }
 ```
@@ -74,7 +76,7 @@ Option 1 with verification step. Run a quick `pnpm typecheck` against `ctx.propo
 
 - BDK API verified: `Psbt.version` IS exposed (`bitcoindevkit.d.ts:672`); `Transaction.version` and `Transaction.lock_time` are NOT exposed. Only `Transaction.is_lock_time_enabled: boolean` is available for the locktime side.
 - Switched the version check to `ctx.proposal.version !== ctx.original.version` (Psbt-level). Reason renamed to `'psbt version changed'` for accuracy.
-- Added a coarse locktime check: `proposal.unsigned_tx.is_lock_time_enabled !== original.unsigned_tx.is_lock_time_enabled`. Reason `'locktime-enabled bit changed'`. Documented the BDK-API limitation in the doc comment (we can't compare the locktime *value*, only the enabled bit).
+- Added a coarse locktime check: `proposal.unsigned_tx.is_lock_time_enabled !== original.unsigned_tx.is_lock_time_enabled`. Reason `'locktime-enabled bit changed'`. Documented the BDK-API limitation in the doc comment (we can't compare the locktime _value_, only the enabled bit).
 - Updated `fakePsbt` test fixture to put `version` at the Psbt level (matching real BDK shape) and added `is_lock_time_enabled` field to `unsigned_tx`. The shape mismatch was masking the production no-op.
 - Added a new test exercising the locktime-bit check.
 - Validator tests: 8 → 10 passing. Repo-wide: 457 → 459 passing.
