@@ -52,6 +52,15 @@ vi.mock('../ldk/payment-input', () => ({
         description: 'BIP 321 embedded invoice',
       }
     }
+    // BIP 321 with payjoin (no embedded amount — amount entered on numpad)
+    if (raw.startsWith('bitcoin:') && raw.includes('pj=')) {
+      return {
+        type: 'onchain',
+        address: 'bc1qtest',
+        amountSats: null,
+        payjoin: { url: 'https://payjo.in/test', strict: false },
+      }
+    }
     // BIP 321 with amount
     if (raw.startsWith('bitcoin:') && raw.includes('amount=')) {
       return { type: 'onchain', address: 'bc1qtest', amountSats: 5000n }
@@ -380,6 +389,48 @@ describe('Send', () => {
 
       await user.click(screen.getByRole('button', { name: /back/i }))
       expect(screen.getByLabelText(/recipient/i)).toBeInTheDocument()
+    })
+  })
+
+  describe('on-chain flow (BIP 321 with payjoin)', () => {
+    it('shows Payjoin badge on review when pj= is present', async () => {
+      const user = userEvent.setup()
+      renderSend(readyContext())
+
+      await submitRecipient(user, 'bitcoin:bc1qtest?pj=https://payjo.in/test')
+      await waitFor(() => {
+        expect(screen.getByText(/available/i)).toBeInTheDocument()
+      })
+
+      await typeOnNumpad(user, '10000')
+      const nextBtns = screen.getAllByRole('button', { name: /next/i })
+      await user.click(nextBtns[nextBtns.length - 1]!)
+
+      await waitFor(() => {
+        expect(screen.getByText(/review/i)).toBeInTheDocument()
+      })
+      expect(screen.getByText(/privacy/i)).toBeInTheDocument()
+      expect(screen.getByText(/payjoin/i)).toBeInTheDocument()
+    })
+
+    it('omits Payjoin badge on review when pj= is absent', async () => {
+      const user = userEvent.setup()
+      renderSend(readyContext())
+
+      await submitRecipient(user, 'bc1qtest')
+      await waitFor(() => {
+        expect(screen.getByText(/available/i)).toBeInTheDocument()
+      })
+
+      await typeOnNumpad(user, '10000')
+      const nextBtns = screen.getAllByRole('button', { name: /next/i })
+      await user.click(nextBtns[nextBtns.length - 1]!)
+
+      await waitFor(() => {
+        expect(screen.getByText(/review/i)).toBeInTheDocument()
+      })
+      expect(screen.queryByText(/privacy/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/payjoin/i)).not.toBeInTheDocument()
     })
   })
 

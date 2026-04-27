@@ -222,17 +222,31 @@ function parseBip321(input: string): ParsedPaymentInput {
     return { type: 'error', message: 'Empty Bitcoin URI' }
   }
 
-  const params = queryPart ? new URLSearchParams(queryPart) : null
-
-  // Extract lightning + payjoin parameters (case-insensitive key lookup)
+  // Extract lightning + payjoin parameters (case-insensitive key lookup).
+  // BIP 21 uses RFC 3986 query syntax, NOT application/x-www-form-urlencoded,
+  // so `+` must be preserved as a literal character. URLSearchParams would
+  // decode `+` to space, corrupting BIP 77 v2 receiver-session URLs whose
+  // fragment uses `+` as a separator (e.g. payjo.in directory URLs).
   let lnoValue: string | null = null
   let lightningValue: string | null = null
   let amountBtc: string | null = null
   let pjValue: string | null = null
   let pjosValue: string | null = null
 
-  if (params) {
-    for (const [key, value] of params.entries()) {
+  if (queryPart) {
+    for (const pair of queryPart.split('&')) {
+      if (!pair) continue
+      const eq = pair.indexOf('=')
+      const rawKey = eq === -1 ? pair : pair.slice(0, eq)
+      const rawValue = eq === -1 ? '' : pair.slice(eq + 1)
+      let key: string
+      let value: string
+      try {
+        key = decodeURIComponent(rawKey)
+        value = decodeURIComponent(rawValue)
+      } catch {
+        continue
+      }
       const lowerKey = key.toLowerCase()
       if (lowerKey === 'lno') lnoValue = value
       else if (lowerKey === 'lightning') lightningValue = value
