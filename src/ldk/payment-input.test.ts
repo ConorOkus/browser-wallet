@@ -213,6 +213,24 @@ describe('classifyPaymentInput — BIP 321 Payjoin (pj= / pjos=)', () => {
     }
   })
 
+  it('preserves literal `+` in pj= (BIP 77 fragment separator)', async () => {
+    // BIP 21 query is RFC 3986, not form-urlencoded — `+` must NOT be decoded
+    // to space. Real payjo.in BIP 77 directory URLs separate receiver-session
+    // components with `+` in the fragment.
+    const pjUrl =
+      'HTTPS://PAYJO.IN/LANG586Q3F5PQ#RK1QD9PE26NCQN0GL99F23V3ADZGZ44CFLA8FX998LMKLX6VSL7DEDP2+OH1QYPFLM8XL59R0XV4VGPLS7FRDSSM4TUXL07TXCWC4S0GLVLNK2SE4NQ+EX1M560Z6G'
+    const uri = `bitcoin:bc1qv8cug9v0lfza8crppshc0vja8khvlf8u0nvmt2?pj=${pjUrl
+      .replace(/:/g, '%3A')
+      .replace(/\//g, '%2F')
+      .replace(/#/g, '%23')}`
+    const { classifyPaymentInput } = await import('./payment-input')
+    const result = classifyPaymentInput(uri)
+    expect(result.type).toBe('onchain')
+    if (result.type === 'onchain') {
+      expect(result.payjoin?.url).toBe(pjUrl)
+    }
+  })
+
   it('omits payjoin field when pj= is empty', async () => {
     const { classifyPaymentInput } = await import('./payment-input')
     const result = classifyPaymentInput(`bitcoin:${ADDR}?pj=`)
