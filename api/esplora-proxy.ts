@@ -10,8 +10,8 @@
  */
 
 const TOKEN_URL =
-  'https://login.blockstream.com/realms/blockstream-public/protocol/openid-connect/token'
-const UPSTREAM_BASE = 'https://enterprise.blockstream.info/api'
+  'https://login.staging.blockstream.com/realms/blockstream-public/protocol/openid-connect/token'
+const UPSTREAM_BASE = 'https://enterprise.staging.blockstream.info/api'
 const TOKEN_REFRESH_BUFFER_MS = 30_000
 const UPSTREAM_TIMEOUT_MS = 15_000
 
