@@ -3,12 +3,7 @@ import { useNavigate, useLocation } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
 import { useUnifiedBalance } from '../hooks/use-unified-balance'
-import {
-  classifyPaymentInput,
-  type ParsedPaymentInput,
-  type PayjoinContext,
-} from '../ldk/payment-input'
-import { tryPayjoinSend } from '../onchain/payjoin/payjoin'
+import { classifyPaymentInput, type ParsedPaymentInput } from '../ldk/payment-input'
 import { resolveBip353 } from '../ldk/resolve-bip353'
 import { resolveLnurlPay, fetchLnurlInvoice } from '../lnurl/resolve-lnurl'
 import { ONCHAIN_CONFIG } from '../onchain/config'
@@ -50,11 +45,7 @@ type SendStep =
       isSendMax: boolean
       fromStep: 'recipient' | 'amount'
       label?: string
-      /** BIP 321 `pj=` context. Present iff the URI advertised Payjoin and
-       * the send is not sendMax (Payjoin needs a change output). */
-      payjoin?: PayjoinContext
     }
-  | { step: 'oc-broadcasting' }
   | { step: 'oc-success'; txid: string; amount: bigint }
   // Lightning flow
   | {
@@ -126,6 +117,7 @@ export function Send() {
   const [isSendMax, setIsSendMax] = useState(false)
   const [pendingQrInput, setPendingQrInput] = useState<string | null>(null)
   const [isResolving, setIsResolving] = useState(false)
+  const [isBroadcasting, setIsBroadcasting] = useState(false)
   const sendingRef = useRef(false)
   const processingRef = useRef(false)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -378,7 +370,6 @@ export function Send() {
                 feeRate: estimate.feeRate,
                 isSendMax: true,
                 fromStep,
-                // Payjoin requires a change output; sendMax has none — omit.
               })
             } catch (err) {
               const message = classifyEstimateError(err)
@@ -403,7 +394,6 @@ export function Send() {
               feeRate: estimate.feeRate,
               isSendMax: false,
               fromStep,
-              payjoin: parsed.payjoin,
             })
           } catch (err) {
             const message = classifyEstimateError(err)
@@ -596,56 +586,21 @@ export function Send() {
     if (onchain.status !== 'ready' || sendStep.step !== 'oc-review') return
 
     sendingRef.current = true
+    setIsBroadcasting(true)
     const sentAmount = sendStep.amount
     const reviewStep = sendStep
-    const payjoinCtx = sendStep.payjoin
-    setSendStep({ step: 'oc-broadcasting' })
-
-    // Abort the Payjoin exchange if the user backgrounds the tab, navigates,
-    // or unmounts mid-flight. The exchange falls back to broadcasting the
-    // original PSBT (no Payjoin), so the send still completes.
-    const payjoinAbort = new AbortController()
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') payjoinAbort.abort()
-    }
-    const onBeforeUnload = () => payjoinAbort.abort()
-    if (payjoinCtx) {
-      document.addEventListener('visibilitychange', onVisibilityChange)
-      window.addEventListener('beforeunload', onBeforeUnload)
-    }
 
     try {
-      let txid: string
-      if (sendStep.isSendMax) {
-        txid = await onchain.sendMax(sendStep.address, sendStep.feeRate)
-      } else if (payjoinCtx) {
-        const transformPsbt = async (
-          unsigned: Parameters<typeof tryPayjoinSend>[0],
-          ctx: Parameters<typeof tryPayjoinSend>[2]
-        ) =>
-          tryPayjoinSend(unsigned, payjoinCtx, {
-            ...ctx,
-            signal: AbortSignal.any([ctx.signal, payjoinAbort.signal]),
-          })
-        txid = await onchain.sendToAddress(
-          sendStep.address,
-          sendStep.amount,
-          sendStep.feeRate,
-          transformPsbt
-        )
-      } else {
-        txid = await onchain.sendToAddress(sendStep.address, sendStep.amount, sendStep.feeRate)
-      }
+      const txid = sendStep.isSendMax
+        ? await onchain.sendMax(sendStep.address, sendStep.feeRate)
+        : await onchain.sendToAddress(sendStep.address, sendStep.amount, sendStep.feeRate)
       setSendStep({ step: 'oc-success', txid, amount: sentAmount })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setSendStep({ step: 'error', message, retryStep: reviewStep })
     } finally {
       sendingRef.current = false
-      if (payjoinCtx) {
-        document.removeEventListener('visibilitychange', onVisibilityChange)
-        window.removeEventListener('beforeunload', onBeforeUnload)
-      }
+      setIsBroadcasting(false)
     }
   }, [onchain, sendStep])
 
@@ -860,16 +815,6 @@ export function Send() {
     )
   }
 
-  // --- On-chain broadcasting ---
-  if (sendStep.step === 'oc-broadcasting') {
-    return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-dark">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-        <p className="text-[var(--color-on-dark-muted)]">Broadcasting transaction...</p>
-      </div>
-    )
-  }
-
   // --- Lightning sending ---
   if (sendStep.step === 'ln-sending') {
     // Determine display status based on list_recent_payments
@@ -925,15 +870,6 @@ export function Send() {
               {sendStep.label ?? `${sendStep.address.slice(0, 12)}...${sendStep.address.slice(-8)}`}
             </span>
           </div>
-          {sendStep.payjoin && (
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Privacy</span>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-3 py-1 text-xs font-bold uppercase tracking-wide text-accent">
-                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-                Payjoin
-              </span>
-            </div>
-          )}
           <div className="flex justify-between">
             <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Amount</span>
             <span className="font-semibold">{formatBtc(sendStep.amount)}</span>
@@ -952,10 +888,18 @@ export function Send() {
         </div>
         <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
           <button
-            className="h-14 w-full rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98]"
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
             onClick={() => void handleOcConfirm()}
+            disabled={isBroadcasting}
           >
-            Confirm Send
+            {isBroadcasting ? (
+              <>
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Sending…
+              </>
+            ) : (
+              'Confirm Send'
+            )}
           </button>
         </div>
       </div>
