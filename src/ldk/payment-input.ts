@@ -221,7 +221,7 @@ function parseBip321(input: string): ParsedPaymentInput {
         key = decodeURIComponent(rawKey)
         value = decodeURIComponent(rawValue)
       } catch {
-        continue
+        return { type: 'error', message: 'Malformed Bitcoin URI' }
       }
       const lowerKey = key.toLowerCase()
       if (lowerKey === 'lno') lnoValue = value

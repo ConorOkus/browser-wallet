@@ -46,7 +46,6 @@ type SendStep =
       fromStep: 'recipient' | 'amount'
       label?: string
     }
-  | { step: 'oc-broadcasting' }
   | { step: 'oc-success'; txid: string; amount: bigint }
   // Lightning flow
   | {
@@ -118,6 +117,7 @@ export function Send() {
   const [isSendMax, setIsSendMax] = useState(false)
   const [pendingQrInput, setPendingQrInput] = useState<string | null>(null)
   const [isResolving, setIsResolving] = useState(false)
+  const [isBroadcasting, setIsBroadcasting] = useState(false)
   const sendingRef = useRef(false)
   const processingRef = useRef(false)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -586,9 +586,9 @@ export function Send() {
     if (onchain.status !== 'ready' || sendStep.step !== 'oc-review') return
 
     sendingRef.current = true
+    setIsBroadcasting(true)
     const sentAmount = sendStep.amount
     const reviewStep = sendStep
-    setSendStep({ step: 'oc-broadcasting' })
 
     try {
       const txid = sendStep.isSendMax
@@ -600,6 +600,7 @@ export function Send() {
       setSendStep({ step: 'error', message, retryStep: reviewStep })
     } finally {
       sendingRef.current = false
+      setIsBroadcasting(false)
     }
   }, [onchain, sendStep])
 
@@ -814,16 +815,6 @@ export function Send() {
     )
   }
 
-  // --- On-chain broadcasting ---
-  if (sendStep.step === 'oc-broadcasting') {
-    return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-dark">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-        <p className="text-[var(--color-on-dark-muted)]">Broadcasting transaction...</p>
-      </div>
-    )
-  }
-
   // --- Lightning sending ---
   if (sendStep.step === 'ln-sending') {
     // Determine display status based on list_recent_payments
@@ -897,10 +888,18 @@ export function Send() {
         </div>
         <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
           <button
-            className="h-14 w-full rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98]"
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
             onClick={() => void handleOcConfirm()}
+            disabled={isBroadcasting}
           >
-            Confirm Send
+            {isBroadcasting ? (
+              <>
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Sending…
+              </>
+            ) : (
+              'Confirm Send'
+            )}
           </button>
         </div>
       </div>

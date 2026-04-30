@@ -8,7 +8,6 @@ import {
   Recipient,
   FeeRate,
   SignOptions,
-  InsufficientFunds,
 } from '@bitcoindevkit/bdk-wallet-web'
 import {
   OnchainContext,
@@ -55,11 +54,6 @@ function discardStagedChanges(wallet: Wallet): void {
 }
 
 function mapSendError(err: unknown): Error {
-  if (err instanceof InsufficientFunds) {
-    return new Error(
-      `Insufficient funds. Available: ${formatBtc(err.available.to_sat())}, needed: ${formatBtc(err.needed.to_sat())}`
-    )
-  }
   if (err instanceof Error) {
     const msg = err.message.toLowerCase()
     if (msg.includes('network') || msg.includes('validation')) {

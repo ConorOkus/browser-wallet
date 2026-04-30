@@ -165,6 +165,17 @@ describe('classifyPaymentInput — BIP 321 URI validation', () => {
     // Should return bolt11, not onchain — lightning takes precedence
     expect(result.type).toBe('bolt11')
   })
+
+  it('rejects BIP 321 URI with malformed %-sequence in query', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const result = classifyPaymentInput(
+      'bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=0.00%ZZ'
+    )
+    expect(result.type).toBe('error')
+    if (result.type === 'error') {
+      expect(result.message).toContain('Malformed')
+    }
+  })
 })
 
 describe('classifyPaymentInput — BIP 353', () => {
