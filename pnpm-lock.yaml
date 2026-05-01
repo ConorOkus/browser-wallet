@@ -32,6 +32,9 @@ importers:
       '@scure/bip39':
         specifier: ^2.0.1
         version: 2.0.1
+      '@xstoicunicornx/payjoin':
+        specifier: 0.0.4
+        version: 0.0.4
       lightningdevkit:
         specifier: 0.1.8-0
         version: 0.1.8-0
@@ -1564,6 +1567,9 @@ packages:
 
   '@vitest/utils@4.0.18':
     resolution: {integrity: sha512-msMRKLMVLWygpK3u2Hybgi4MNjcYJvwTb0Ru09+fOyCXIgT5raYP041DRRdiJiI3k/2U6SEbAETB3YtBrUkCFA==}
+
+  '@xstoicunicornx/payjoin@0.0.4':
+    resolution: {integrity: sha512-ogqQg/hD5NzYopv0p6sGlyyjr+JjzztKmp4t53rA5e6EAJlLioumTxUdM6XWKKK7NOe3W0fDloaxK5ai/t1HeQ==}
 
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
@@ -4775,6 +4781,8 @@ snapshots:
     dependencies:
       '@vitest/pretty-format': 4.0.18
       tinyrainbow: 3.0.3
+
+  '@xstoicunicornx/payjoin@0.0.4': {}
 
   acorn-jsx@5.3.2(acorn@8.16.0):
     dependencies:

@@ -15,6 +15,7 @@ import { Scan } from '../pages/Scan'
 import { Restore } from '../pages/Restore'
 import { TransactionDetail } from '../pages/TransactionDetail'
 import { RecoverFunds } from '../pages/RecoverFunds'
+import { PayjoinSmoke } from '../pages/PayjoinSmoke'
 
 export const router = createBrowserRouter([
   {
@@ -38,4 +39,7 @@ export const router = createBrowserRouter([
       { path: 'settings/advanced/peers/close-channel', element: <CloseChannel /> },
     ],
   },
+  // Sibling root route — outside <Layout /> so the smoke test is isolated
+  // from wallet/LDK boot. Throwaway; lives on branch `payjoin-fork-smoke`.
+  { path: '/__payjoin_smoke', element: <PayjoinSmoke /> },
 ])
